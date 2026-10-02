@@ -1,0 +1,8 @@
+{
+  "name": "Remix 台股智選量化操盤室",
+  "description": "專業級台灣個股即時行情分析、互動式 K 線與 KD/MACD 指標、自訂量化交易策略回測與自選股追蹤系統。",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
