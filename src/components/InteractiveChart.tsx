@@ -35,6 +35,35 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
   const [showTradeMarkers, setShowTradeMarkers] = useState<boolean>(true);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+
+  // Responsive resize tracking
+  useEffect(() => {
+    const handleResize = () => {
+      if (canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          setDimensions({ width: Math.round(rect.width), height: Math.round(rect.height) });
+        }
+      }
+    };
+
+    handleResize();
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      ro = new ResizeObserver(() => {
+        handleResize();
+      });
+      ro.observe(containerRef.current);
+    }
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [isFullscreen]);
 
   // Zoom & Pan state: default show ~75 daily candles for comfortable viewing on 2-year dataset
   const [visibleCount, setVisibleCount] = useState<number>(75);
@@ -630,7 +659,7 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
       ctx.fillStyle = '#e2e8f0';
       ctx.fillText(c.time.slice(5), Math.max(4, activeX - 16), height - 4);
     }
-  }, [visibleData, showMAs, showBollinger, showTradeMarkers, trades, hoverIndex]);
+  }, [visibleData, showMAs, showBollinger, showTradeMarkers, trades, hoverIndex, dimensions]);
 
   // Pointer interactions for dragging / panning
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -892,6 +921,13 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
               <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
               <span>載入近 2 年日 K 線數據中...</span>
             </div>
+          </div>
+        )}
+
+        {candles.length === 0 && !isLoading && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center p-4 bg-slate-950/60">
+            <p className="text-slate-400 text-sm font-semibold mb-1">正在初始化 {stockName} ({symbol}) K 線數據</p>
+            <p className="text-xs text-slate-500">系統即將加載最新行情與指標...</p>
           </div>
         )}
 

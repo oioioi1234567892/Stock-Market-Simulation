@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { auth } from './lib/firebase.ts';
-import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { StockQuote, CandleData, TradeRecord, WatchlistItem, StrategyConfig } from './types/stock.ts';
-import { fetchStockQuote, fetchStockHistory, syncUserProfile, getWatchlist, addWatchlist, deleteWatchlist } from './services/api.ts';
+import { fetchStockQuote, fetchStockHistory, getWatchlist, addWatchlist, deleteWatchlist } from './services/api.ts';
 import { Header } from './components/Header.tsx';
 import { StockSummary } from './components/StockSummary.tsx';
 import { InteractiveChart } from './components/InteractiveChart.tsx';
@@ -11,9 +9,9 @@ import { TraderSignalRadar } from './components/TraderSignalRadar.tsx';
 import { StrategyBacktester } from './components/StrategyBacktester.tsx';
 import { WatchlistManager } from './components/WatchlistManager.tsx';
 import { PythonScriptModal } from './components/PythonScriptModal.tsx';
-import { AuthModal } from './components/AuthModal.tsx';
+import { RiskCalculatorModal } from './components/RiskCalculatorModal.tsx';
 import { MobileNav, ActiveMobileTab } from './components/MobileNav.tsx';
-import { RefreshCw, TrendingUp, Activity, Sparkles } from 'lucide-react';
+import { RefreshCw, TrendingUp, Activity, Sparkles, ShieldCheck } from 'lucide-react';
 
 export default function App() {
   // Active Stock State
@@ -36,29 +34,13 @@ export default function App() {
   // Watchlist state for fast starring
   const [userWatchlist, setUserWatchlist] = useState<WatchlistItem[]>([]);
 
-  // Auth & Modals
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  // Modals & Tools
   const [isPythonModalOpen, setIsPythonModalOpen] = useState<boolean>(false);
+  const [isRiskCalcOpen, setIsRiskCalcOpen] = useState<boolean>(false);
   const [activeStrategy, setActiveStrategy] = useState<StrategyConfig | undefined>();
 
   // Mobile Active Tab
   const [activeMobileTab, setActiveMobileTab] = useState<ActiveMobileTab>('chart');
-
-  // Listen to Auth State
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async currentUser => {
-      setUser(currentUser);
-      if (currentUser) {
-        try {
-          await syncUserProfile();
-        } catch (e) {
-          console.error('Failed to sync profile', e);
-        }
-      }
-    });
-    return () => unsubscribe();
-  }, []);
 
   // Fetch Watchlist for active stock starring check
   const refreshWatchlist = useCallback(async () => {
@@ -70,7 +52,7 @@ export default function App() {
 
   useEffect(() => {
     refreshWatchlist();
-  }, [user, refreshWatchlist]);
+  }, [refreshWatchlist]);
 
   const isInWatchlist = userWatchlist.some(w => w.symbol === currentSymbol);
 
@@ -98,7 +80,7 @@ export default function App() {
     }
   };
 
-  // Fetch Quote
+  // Fetch Quote from Yahoo Finance
   const loadQuote = useCallback(async (sym: string) => {
     try {
       setIsQuoteLoading(true);
@@ -112,7 +94,7 @@ export default function App() {
     }
   }, []);
 
-  // Fetch Historical Candles
+  // Fetch Historical Candles from Yahoo Finance
   const loadCandles = useCallback(async (sym: string, range: string, interval: string) => {
     try {
       setIsCandlesLoading(true);
@@ -157,112 +139,53 @@ export default function App() {
   const handleSelectStock = (symbol: string, name: string) => {
     setCurrentSymbol(symbol);
     setStockName(name);
-    // Switch to chart view on mobile when picking a stock
     setActiveMobileTab('chart');
   };
 
-  // Sign out
-  const handleSignOut = async () => {
-    try {
-      await signOut(auth);
-      setUser(null);
-    } catch (e) {
-      console.error('Sign out error', e);
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans pb-24 sm:pb-8">
-      {/* Top Header */}
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans pb-16 sm:pb-6">
+      {/* Top Navbar */}
       <Header
         currentSymbol={currentSymbol}
         onSelectStock={handleSelectStock}
-        user={user}
-        onOpenAuth={() => setIsAuthModalOpen(true)}
-        onSignOut={handleSignOut}
+        onOpenRiskCalc={() => setIsRiskCalcOpen(true)}
       />
 
-      {/* Main Content Layout */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-3 sm:py-4 flex flex-col gap-3.5 sm:gap-4">
-        {/* Real-time Quote Summary Banner */}
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-400 flex items-center gap-1.5 font-medium">
-              <TrendingUp size={14} className="text-red-400" />
-              即時行情監控面板 · 整合 Yahoo Finance 即時串接
-            </span>
+      {/* Main Container */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-2 sm:px-4 py-3 sm:py-4 flex flex-col gap-3">
+        {/* Error Notification Banner if any */}
+        {errorMsg && (
+          <div className="bg-amber-950/60 border border-amber-800/80 text-amber-300 text-xs px-3 py-2 rounded-lg flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  loadQuote(currentSymbol);
-                  loadCandles(currentSymbol, currentRange, currentInterval);
-                }}
-                className="text-xs text-slate-400 hover:text-white flex items-center gap-1 bg-slate-900 border border-slate-800 hover:border-slate-700 px-2 py-1 rounded-md transition-colors"
-                title="重新整理數據"
-              >
-                <RefreshCw size={12} className={isQuoteLoading ? 'animate-spin' : ''} />
-                <span className="hidden sm:inline">重新整理</span>
-              </button>
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
+              <span>{errorMsg} (已啟用高保真備援技術分析數據流)</span>
             </div>
+            <button
+              onClick={() => {
+                loadQuote(currentSymbol);
+                loadCandles(currentSymbol, currentRange, currentInterval);
+              }}
+              className="text-amber-200 underline text-xs hover:text-white"
+            >
+              重新整理
+            </button>
           </div>
+        )}
 
-          <StockSummary
-            quote={quote}
-            isLoading={isQuoteLoading}
-            isInWatchlist={isInWatchlist}
-            onToggleWatchlist={handleToggleWatchlist}
-            onOpenDepth={() => setActiveMobileTab('depth')}
-          />
-        </div>
+        {/* Top Stock Summary Bar */}
+        <StockSummary
+          quote={quote}
+          isLoading={isQuoteLoading}
+          isInWatchlist={isInWatchlist}
+          onToggleWatchlist={handleToggleWatchlist}
+          onOpenRiskCalc={() => setIsRiskCalcOpen(true)}
+          onOpenDepth={() => setActiveMobileTab('depth')}
+        />
 
-        {/* Mobile View Tab Filter Switcher */}
-        <div className="sm:hidden flex items-center bg-slate-900 border border-slate-800 rounded-lg p-1 text-xs gap-1">
-          <button
-            onClick={() => setActiveMobileTab('chart')}
-            className={`flex-1 py-1.5 rounded-md font-semibold text-center transition-all ${
-              activeMobileTab === 'chart' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400'
-            }`}
-          >
-            K線指標
-          </button>
-          <button
-            onClick={() => setActiveMobileTab('depth')}
-            className={`flex-1 py-1.5 rounded-md font-semibold text-center transition-all ${
-              activeMobileTab === 'depth' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400'
-            }`}
-          >
-            五檔盤口
-          </button>
-          <button
-            onClick={() => setActiveMobileTab('radar')}
-            className={`flex-1 py-1.5 rounded-md font-semibold text-center transition-all ${
-              activeMobileTab === 'radar' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400'
-            }`}
-          >
-            信號雷達
-          </button>
-          <button
-            onClick={() => setActiveMobileTab('backtest')}
-            className={`flex-1 py-1.5 rounded-md font-semibold text-center transition-all ${
-              activeMobileTab === 'backtest' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400'
-            }`}
-          >
-            量化回測
-          </button>
-          <button
-            onClick={() => setActiveMobileTab('watchlist')}
-            className={`flex-1 py-1.5 rounded-md font-semibold text-center transition-all ${
-              activeMobileTab === 'watchlist' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400'
-            }`}
-          >
-            自選股
-          </button>
-        </div>
-
-        {/* Desktop View Layout / Responsive Views */}
-        <div className="flex flex-col gap-5">
-          {/* Chart Section (Visible on desktop or when mobile activeTab === 'chart') */}
-          <div className={`${activeMobileTab === 'chart' ? 'block' : 'hidden sm:block'}`}>
+        {/* Mobile & Desktop View Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+          {/* Main Chart Column (3 Cols on Desktop / Shown when activeTab === 'chart') */}
+          <div className={`lg:col-span-3 flex flex-col gap-3 ${activeMobileTab === 'chart' ? 'block' : 'hidden lg:flex'}`}>
             <InteractiveChart
               candles={candles}
               symbol={currentSymbol}
@@ -270,33 +193,41 @@ export default function App() {
               trades={backtestTrades}
               isLoading={isCandlesLoading}
               selectedRange={currentRange}
-              onRangeChange={setCurrentRange}
+              onRangeChange={(range: string) => {
+                setCurrentRange(range);
+                loadCandles(currentSymbol, range, currentInterval);
+              }}
+              onOpenRiskCalc={() => setIsRiskCalcOpen(true)}
             />
           </div>
 
-          {/* Desktop & Mobile Dual Pro Panels: Five-Depth Order Book & Signal Radar */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Five-Depth Order Book (Visible on desktop or when mobile activeTab === 'depth') */}
-            <div className={`${activeMobileTab === 'depth' ? 'block' : 'hidden sm:block'}`}>
+          {/* Right Sidebar Column (1 Col on Desktop) - Tape Depth & Signal Radar */}
+          <div className="flex flex-col gap-3">
+            {/* Five Level Depth (Visible on desktop or when activeMobileTab === 'depth') */}
+            <div className={`${activeMobileTab === 'depth' ? 'block' : 'hidden lg:block'}`}>
               <FiveLevelDepth quote={quote} stockName={stockName} />
             </div>
 
-            {/* Signal Radar (Visible on desktop or when mobile activeTab === 'radar') */}
-            <div className={`${activeMobileTab === 'radar' ? 'block' : 'hidden sm:block'}`}>
-              <TraderSignalRadar candles={candles} quote={quote} stockName={stockName} />
+            {/* Trader Signal Radar (Visible on desktop or when activeMobileTab === 'radar') */}
+            <div className={`${activeMobileTab === 'radar' ? 'block' : 'hidden lg:block'}`}>
+              <TraderSignalRadar
+                candles={twoYearCandles.length > 0 ? twoYearCandles : candles}
+                quote={quote}
+                stockName={stockName}
+              />
             </div>
           </div>
+        </div>
 
-          {/* Strategy Backtest Section (Visible on desktop or when mobile activeTab === 'backtest') */}
+        {/* Lower Section: Backtesting Lab & Watchlist Management */}
+        <div className="flex flex-col gap-3">
+          {/* Strategy Backtesting Lab (Visible on desktop or when mobile activeTab === 'backtest') */}
           <div className={`${activeMobileTab === 'backtest' ? 'block' : 'hidden sm:block'}`}>
             <StrategyBacktester
               candles={twoYearCandles.length > 0 ? twoYearCandles : candles}
               symbol={currentSymbol}
               stockName={stockName}
-              onOpenPythonModal={(strat) => {
-                if (strat) setActiveStrategy(strat);
-                setIsPythonModalOpen(true);
-              }}
+              onOpenPythonModal={() => setIsPythonModalOpen(true)}
               onTradesGenerated={setBacktestTrades}
               onStrategyChange={setActiveStrategy}
             />
@@ -307,8 +238,6 @@ export default function App() {
             <WatchlistManager
               currentSymbol={currentSymbol}
               onSelectStock={handleSelectStock}
-              user={user}
-              onOpenAuth={() => setIsAuthModalOpen(true)}
               activeStrategy={activeStrategy}
             />
           </div>
@@ -330,14 +259,13 @@ export default function App() {
         strategy={activeStrategy}
       />
 
-      {/* Google Sign-in Modal */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        onSuccess={() => {
-          loadQuote(currentSymbol);
-          refreshWatchlist();
-        }}
+      {/* Risk & Position Sizing Calculator Modal */}
+      <RiskCalculatorModal
+        isOpen={isRiskCalcOpen}
+        onClose={() => setIsRiskCalcOpen(false)}
+        symbol={currentSymbol}
+        stockName={stockName}
+        currentPrice={quote?.price || 100}
       />
     </div>
   );

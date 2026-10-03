@@ -131,16 +131,12 @@ function evaluateStrategySignal(
 interface WatchlistManagerProps {
   currentSymbol: string;
   onSelectStock: (symbol: string, name: string) => void;
-  user: any;
-  onOpenAuth: () => void;
   activeStrategy?: StrategyConfig;
 }
 
 export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
   currentSymbol,
   onSelectStock,
-  user,
-  onOpenAuth,
   activeStrategy,
 }) => {
   const [activeTab, setActiveTab] = useState<'watchlist' | 'backtestHistory'>('watchlist');
@@ -186,10 +182,8 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
 
   useEffect(() => {
     loadWatchlist();
-    if (user) {
-      loadBacktests();
-    }
-  }, [user]);
+    loadBacktests();
+  }, []);
 
   // Batch fetch candles & quotes whenever watchlist changes
   const fetchWatchlistData = useCallback(async () => {
@@ -285,10 +279,6 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
   // Handle Delete Watchlist item
   const handleDelete = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user) {
-      setWatchlist(prev => prev.filter(item => item.id !== id));
-      return;
-    }
     try {
       await deleteWatchlist(id);
       setWatchlist(prev => prev.filter(item => item.id !== id));
@@ -332,14 +322,14 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
           <button
             onClick={() => {
               setActiveTab('backtestHistory');
-              if (user) loadBacktests();
+              loadBacktests();
             }}
             className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-colors ${
               activeTab === 'backtestHistory' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
             <History size={14} />
-            <span>PostgreSQL 回測紀錄 ({backtestRecords.length})</span>
+            <span>量化回測歷史紀錄 ({backtestRecords.length})</span>
           </button>
         </div>
 
@@ -369,17 +359,12 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
       <div className="p-3">
         {activeTab === 'watchlist' ? (
           <div className="flex flex-col gap-3">
-            {!user && (
-              <div className="p-2.5 bg-blue-950/30 border border-blue-800/40 rounded-lg text-xs text-blue-300 flex items-center justify-between">
-                <span>目前為本機高效存儲模式。登入 Google 帳號可開啟自選股多裝置同步與雲端備份。</span>
-                <button
-                  onClick={onOpenAuth}
-                  className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[11px] font-medium transition-colors shrink-0 ml-2"
-                >
-                  立即登入
-                </button>
-              </div>
-            )}
+            <div className="p-2.5 bg-slate-950/80 border border-slate-800 rounded-lg text-xs text-slate-300 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck size={14} className="text-emerald-400 shrink-0" />
+                <span>免資料庫私密架構：自選組合與回測記錄自動保存於本機瀏覽器，安全且離線亦可使用。</span>
+              </span>
+            </div>
 
             {/* Strategy Context Banner: Shows current linked backtest strategy & rules */}
             <div className="bg-slate-950/80 border border-slate-800/90 rounded-xl p-2.5 sm:p-3 flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs">
