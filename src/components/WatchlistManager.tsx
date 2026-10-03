@@ -17,6 +17,10 @@ export interface StockStrategySignal {
   exitPrice?: number;
   holdingDays?: number;
   returnPct?: number;
+  winRate: number;
+  expectancyPct: number;
+  maxDrawdownPct: number;
+  totalTrades: number;
 }
 
 const DEFAULT_STRATEGY: StrategyConfig = {
@@ -61,6 +65,10 @@ function evaluateStrategySignal(
       statusLabel: '空手觀望',
       statusDesc: 'K線數據不足',
       badgeClass: 'bg-slate-800 text-slate-400 border-slate-700',
+      winRate: 0,
+      expectancyPct: 0,
+      maxDrawdownPct: 0,
+      totalTrades: 0,
     };
   }
 
@@ -80,6 +88,10 @@ function evaluateStrategySignal(
           entryPrice: result.openPosition.entryPrice,
           holdingDays: 0,
           returnPct: result.openPosition.unrealizedReturnPct,
+          winRate: result.winRate,
+          expectancyPct: result.expectancyPct,
+          maxDrawdownPct: result.maxDrawdownPct,
+          totalTrades: result.totalTrades,
         };
       } else {
         return {
@@ -91,6 +103,10 @@ function evaluateStrategySignal(
           entryPrice: result.openPosition.entryPrice,
           holdingDays: result.openPosition.holdingDays,
           returnPct: result.openPosition.unrealizedReturnPct,
+          winRate: result.winRate,
+          expectancyPct: result.expectancyPct,
+          maxDrawdownPct: result.maxDrawdownPct,
+          totalTrades: result.totalTrades,
         };
       }
     }
@@ -106,6 +122,10 @@ function evaluateStrategySignal(
           badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/60 shadow-xs',
           exitPrice: lastTrade.exitPrice,
           returnPct: lastTrade.returnPct,
+          winRate: result.winRate,
+          expectancyPct: result.expectancyPct,
+          maxDrawdownPct: result.maxDrawdownPct,
+          totalTrades: result.totalTrades,
         };
       }
     }
@@ -116,6 +136,10 @@ function evaluateStrategySignal(
       statusLabel: '空手觀望',
       statusDesc: '未達進場條件 · 靜待訊號',
       badgeClass: 'bg-slate-800/80 text-slate-400 border-slate-700/60',
+      winRate: result.winRate,
+      expectancyPct: result.expectancyPct,
+      maxDrawdownPct: result.maxDrawdownPct,
+      totalTrades: result.totalTrades,
     };
   } catch (err) {
     console.warn(`Evaluation error for ${symbol}:`, err);
@@ -124,6 +148,10 @@ function evaluateStrategySignal(
       statusLabel: '空手觀望',
       statusDesc: '條件未觸發',
       badgeClass: 'bg-slate-800/80 text-slate-400 border-slate-700/60',
+      winRate: 0,
+      expectancyPct: 0,
+      maxDrawdownPct: 0,
+      totalTrades: 0,
     };
   }
 }
@@ -131,12 +159,16 @@ function evaluateStrategySignal(
 interface WatchlistManagerProps {
   currentSymbol: string;
   onSelectStock: (symbol: string, name: string) => void;
+  user: any;
+  onOpenAuth: () => void;
   activeStrategy?: StrategyConfig;
 }
 
 export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
   currentSymbol,
   onSelectStock,
+  user,
+  onOpenAuth,
   activeStrategy,
 }) => {
   const [activeTab, setActiveTab] = useState<'watchlist' | 'backtestHistory'>('watchlist');
@@ -182,8 +214,10 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
 
   useEffect(() => {
     loadWatchlist();
-    loadBacktests();
-  }, []);
+    if (user) {
+      loadBacktests();
+    }
+  }, [user]);
 
   // Batch fetch candles & quotes whenever watchlist changes
   const fetchWatchlistData = useCallback(async () => {
@@ -219,6 +253,10 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
           statusLabel: '空手觀望',
           statusDesc: '載入歷史行情中...',
           badgeClass: 'bg-slate-800/80 text-slate-400 border-slate-700/60',
+          winRate: 0,
+          expectancyPct: 0,
+          maxDrawdownPct: 0,
+          totalTrades: 0,
         };
       }
     });
@@ -279,6 +317,10 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
   // Handle Delete Watchlist item
   const handleDelete = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!user) {
+      setWatchlist(prev => prev.filter(item => item.id !== id));
+      return;
+    }
     try {
       await deleteWatchlist(id);
       setWatchlist(prev => prev.filter(item => item.id !== id));
@@ -322,14 +364,14 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
           <button
             onClick={() => {
               setActiveTab('backtestHistory');
-              loadBacktests();
+              if (user) loadBacktests();
             }}
             className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-colors ${
               activeTab === 'backtestHistory' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
             <History size={14} />
-            <span>量化回測歷史紀錄 ({backtestRecords.length})</span>
+            <span>PostgreSQL 回測紀錄 ({backtestRecords.length})</span>
           </button>
         </div>
 
@@ -359,12 +401,17 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
       <div className="p-3">
         {activeTab === 'watchlist' ? (
           <div className="flex flex-col gap-3">
-            <div className="p-2.5 bg-slate-950/80 border border-slate-800 rounded-lg text-xs text-slate-300 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck size={14} className="text-emerald-400 shrink-0" />
-                <span>免資料庫私密架構：自選組合與回測記錄自動保存於本機瀏覽器，安全且離線亦可使用。</span>
-              </span>
-            </div>
+            {!user && (
+              <div className="p-2.5 bg-blue-950/30 border border-blue-800/40 rounded-lg text-xs text-blue-300 flex items-center justify-between">
+                <span>目前為本機高效存儲模式。登入 Google 帳號可開啟自選股多裝置同步與雲端備份。</span>
+                <button
+                  onClick={onOpenAuth}
+                  className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[11px] font-medium transition-colors shrink-0 ml-2"
+                >
+                  立即登入
+                </button>
+              </div>
+            )}
 
             {/* Strategy Context Banner: Shows current linked backtest strategy & rules */}
             <div className="bg-slate-950/80 border border-slate-800/90 rounded-xl p-2.5 sm:p-3 flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs">
@@ -438,7 +485,7 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
             </div>
 
             {/* Watchlist Grid with Live Stock Prices & Strategy Status (BUY, HOLD, SELL, WAIT) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {filteredWatchlist.map(item => {
                 const isSelected = item.symbol === currentSymbol;
                 const quote = stockDataMap[item.symbol]?.quote;
@@ -447,6 +494,10 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
                   statusLabel: '空手觀望',
                   statusDesc: '靜待訊號',
                   badgeClass: 'bg-slate-800/80 text-slate-400 border-slate-700/60',
+                  winRate: 0,
+                  expectancyPct: 0,
+                  maxDrawdownPct: 0,
+                  totalTrades: 0,
                 };
 
                 const isUp = (quote?.change ?? 0) > 0;
@@ -457,40 +508,35 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
                   <div
                     key={item.id}
                     onClick={() => onSelectStock(item.symbol, item.name)}
-                    className={`p-3 rounded-xl border cursor-pointer transition-all flex flex-col justify-between gap-2.5 ${
+                    className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col gap-3 ${
                       isSelected
                         ? 'bg-blue-950/40 border-blue-500 ring-1 ring-blue-500/50 shadow-lg shadow-blue-950/40'
-                        : 'bg-slate-950/65 border-slate-800 hover:border-slate-700 hover:bg-slate-900/60'
+                        : 'bg-slate-950/70 border-slate-800 hover:border-slate-700 hover:bg-slate-900/60'
                     }`}
                   >
-                    {/* Top: Stock Name, Symbol & Remove */}
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-100 text-sm sm:text-base">{item.name}</span>
-                          <span className="text-[11px] font-mono text-slate-400 bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded">
-                            {item.symbol}
-                          </span>
-                        </div>
-                        {item.notes && (
-                          <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{item.notes}</p>
-                        )}
+                    {/* 1. 股票公司 & 移除按鈕 */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-100 text-base">{item.name}</span>
+                        <span className="text-xs font-mono font-medium text-slate-400 bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded">
+                          {item.symbol}
+                        </span>
                       </div>
 
                       <button
                         onClick={e => handleDelete(item.id, e)}
-                        className="text-slate-500 hover:text-red-400 p-1 rounded transition-colors"
+                        className="text-slate-500 hover:text-red-400 p-1.5 rounded transition-colors"
                         title="自清單移除"
                       >
                         <Trash2 size={13} />
                       </button>
                     </div>
 
-                    {/* Middle: Live Stock Price & Strategy Status Badge */}
+                    {/* 2 & 3. 目前股價 & 策略狀態 */}
                     <div className="flex items-center justify-between bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/70">
-                      {/* Live Price Display */}
+                      {/* 目前股價 */}
                       <div>
-                        <div className="text-[10px] text-slate-400 mb-0.5">目前股價</div>
+                        <div className="text-[10px] text-slate-400 mb-0.5 font-medium">目前股價</div>
                         {quote ? (
                           <div className="flex items-baseline gap-1.5 flex-wrap">
                             <span className={`text-base sm:text-lg font-bold font-mono ${priceColor}`}>
@@ -505,9 +551,9 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
                         )}
                       </div>
 
-                      {/* Strategy Signal Badge (持有 / 買入 / 賣出 / 觀望) */}
+                      {/* 策略狀態 */}
                       <div className="text-right">
-                        <div className="text-[10px] text-slate-400 mb-0.5">策略狀態</div>
+                        <div className="text-[10px] text-slate-400 mb-0.5 font-medium">策略狀態</div>
                         <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${signal.badgeClass}`}>
                           {signal.status === 'BUY' && (
                             <span className="flex h-2 w-2 relative">
@@ -529,32 +575,39 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
                       </div>
                     </div>
 
-                    {/* Strategy Status Detail Note */}
-                    <div className="text-[11px] text-slate-300 font-sans flex items-center gap-1.5 px-0.5">
-                      <Sparkles
-                        size={12}
-                        className={
-                          signal.status === 'BUY'
-                            ? 'text-red-400 shrink-0'
-                            : signal.status === 'HOLD'
-                            ? 'text-emerald-400 shrink-0'
-                            : signal.status === 'SELL'
-                            ? 'text-amber-400 shrink-0'
-                            : 'text-slate-500 shrink-0'
-                        }
-                      />
-                      <span className="truncate">{signal.statusDesc}</span>
-                    </div>
-
-                    {/* Target prices & volume */}
-                    <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-2 border-t border-slate-800/60">
-                      <span>目標買: {item.targetBuyPrice ? `${item.targetBuyPrice}元` : '--'}</span>
-                      <span>目標賣: {item.targetSellPrice ? `${item.targetSellPrice}元` : '--'}</span>
-                      {quote && (
-                        <span className="text-[10px] text-slate-500">
-                          量: {Math.round(quote.volume / 1000).toLocaleString()}張
+                    {/* 4, 5, 6. 量化策略指標：策略勝率、期望值、最大回測 */}
+                    <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-slate-800/70">
+                      {/* 策略勝率 */}
+                      <div className="bg-slate-900/40 rounded-lg p-1.5 border border-slate-800/50 flex flex-col items-center justify-center text-center">
+                        <span className="text-[10px] text-slate-400 font-medium">策略勝率</span>
+                        <span className={`text-xs sm:text-sm font-bold font-mono mt-0.5 ${
+                          signal.totalTrades > 0
+                            ? signal.winRate >= 50 ? 'text-red-400' : 'text-emerald-400'
+                            : 'text-slate-300'
+                        }`}>
+                          {signal.totalTrades > 0 ? `${signal.winRate}%` : '--'}
                         </span>
-                      )}
+                      </div>
+
+                      {/* 期望值 */}
+                      <div className="bg-slate-900/40 rounded-lg p-1.5 border border-slate-800/50 flex flex-col items-center justify-center text-center">
+                        <span className="text-[10px] text-slate-400 font-medium">期望值</span>
+                        <span className={`text-xs sm:text-sm font-bold font-mono mt-0.5 ${
+                          signal.totalTrades > 0
+                            ? signal.expectancyPct > 0 ? 'text-red-400' : signal.expectancyPct < 0 ? 'text-emerald-400' : 'text-slate-300'
+                            : 'text-slate-300'
+                        }`}>
+                          {signal.totalTrades > 0 ? `${signal.expectancyPct > 0 ? '+' : ''}${signal.expectancyPct}%` : '--'}
+                        </span>
+                      </div>
+
+                      {/* 最大回測 */}
+                      <div className="bg-slate-900/40 rounded-lg p-1.5 border border-slate-800/50 flex flex-col items-center justify-center text-center">
+                        <span className="text-[10px] text-slate-400 font-medium">最大回測</span>
+                        <span className="text-xs sm:text-sm font-bold font-mono mt-0.5 text-amber-400">
+                          {signal.maxDrawdownPct > 0 ? `-${signal.maxDrawdownPct}%` : '0%'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
