@@ -9,7 +9,12 @@ import {
   EntryConditionType,
   ExitConditionType,
 } from '../types/stock.ts';
-import { runBacktest } from '../utils/backtestEngine.ts';
+import {
+  runBacktest,
+  DEFAULT_ENTRY_CONDITIONS,
+  DEFAULT_EXIT_CONDITIONS,
+  DEFAULT_STRATEGY,
+} from '../utils/backtestEngine.ts';
 import { saveBacktest } from '../services/api.ts';
 import {
   Play,
@@ -40,119 +45,6 @@ interface StrategyBacktesterProps {
   onStrategyChange?: (strategy: StrategyConfig) => void;
 }
 
-// 8 大進場獨立函式預設清單
-const DEFAULT_ENTRY_CONDITIONS: EntryCondition[] = [
-  {
-    id: 'entry-1',
-    type: 'checkMaGoldenCross',
-    name: '周月金叉 (MA5>MA20)',
-    description: 'MA5 向上突破 MA20 月線瞬間（單日穿透觸發型。若中途停利出場，需待死叉後重新金叉方能再次進場）',
-    enabled: true,
-  },
-  {
-    id: 'entry-2',
-    type: 'checkKdGoldenCross',
-    name: 'KD黃金交叉',
-    description: 'KD 指標 K值由下往上穿越 D值 (9,3,3)',
-    enabled: false,
-  },
-  {
-    id: 'entry-3',
-    type: 'checkMacdGoldenCross',
-    name: 'MACD黃金交叉 (OSC 負翻正)',
-    description: 'MACD 柱狀體由負翻正，短波多頭動能啟動',
-    enabled: false,
-  },
-  {
-    id: 'entry-4',
-    type: 'checkDifGtMacd',
-    name: 'DIF-MACD>0 (多頭動能延續)',
-    description: '快線位於慢線上方，柱體大於 0 多方強勢控盤',
-    enabled: false,
-  },
-  {
-    id: 'entry-5',
-    type: 'checkRsiEntry',
-    name: 'RSI 超賣回升 / 短天期金叉',
-    description: 'RSI 自超賣區(<35)回升翻揚或突破 50 中軸多方強勢區',
-    enabled: false,
-  },
-  {
-    id: 'entry-6',
-    type: 'checkBreakout30dHigh',
-    name: '突破過去30日最高價 (海龜動能)',
-    description: '收盤價突破過去 30 根 K 線最高點 (海龜交易突破法)',
-    enabled: true,
-  },
-  {
-    id: 'entry-7',
-    type: 'checkVolumeSpike',
-    name: '成交量>1.5倍五日平均 (放量攻擊)',
-    description: '當日成交量突破 5 日均量 1.5 倍且收紅 K 實體線',
-    enabled: false,
-  },
-  {
-    id: 'entry-8',
-    type: 'checkCloseAboveMa20',
-    name: '股價站上MA20 (月線生命線)',
-    description: '收盤價穩固站在 20 日月線生命線之上',
-    enabled: true,
-  },
-];
-
-// 7 大出場獨立函式預設清單
-const DEFAULT_EXIT_CONDITIONS: ExitCondition[] = [
-  {
-    id: 'exit-1',
-    type: 'checkMaDeathCross',
-    name: '周月死叉 (MA5<MA20)',
-    description: 'MA5 均線向下跌破 MA20 月線轉弱',
-    enabled: true,
-  },
-  {
-    id: 'exit-2',
-    type: 'checkKdDeathCross',
-    name: 'KD死亡交叉',
-    description: 'KD 指標 K值由上往下跌破 D值 (高檔動能背離)',
-    enabled: false,
-  },
-  {
-    id: 'exit-3',
-    type: 'checkMacdDeathCross',
-    name: 'MACD死亡交叉',
-    description: 'MACD 柱狀體由正翻負，多方動能竭盡',
-    enabled: false,
-  },
-  {
-    id: 'exit-4',
-    type: 'checkDifLtMacd',
-    name: 'DIF-MACD<0',
-    description: '快線向下跌破慢線，空頭動能擴散',
-    enabled: false,
-  },
-  {
-    id: 'exit-5',
-    type: 'checkRsiExit',
-    name: 'RSI 超買回檔',
-    description: 'RSI 自 70 超買區向下跌破，或觸及 80 極度鈍化警戒',
-    enabled: false,
-  },
-  {
-    id: 'exit-6',
-    type: 'checkBreakdown30dHigh',
-    name: '跌破過去30日高價防守線',
-    description: '自 30 日波段最高點回撤達 3% 防守線或跌破 30 日低點',
-    enabled: false,
-  },
-  {
-    id: 'exit-7',
-    type: 'checkCloseBelowMa20',
-    name: '股價跌破MA20',
-    description: '收盤價向下跌破 20 日月線生命線支撐',
-    enabled: true,
-  },
-];
-
 export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
   candles,
   symbol,
@@ -163,9 +55,9 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
   onStrategyChange,
 }) => {
   // Strategy Configuration State
-  const [strategyName, setStrategyName] = useState<string>('海龜30日突破動量量化策略');
-  const [entryLogic, setEntryLogic] = useState<'AND' | 'OR'>('AND');
-  const [exitLogic, setExitLogic] = useState<'AND' | 'OR'>('OR');
+  const [strategyName, setStrategyName] = useState<string>(DEFAULT_STRATEGY.name);
+  const [entryLogic, setEntryLogic] = useState<'AND' | 'OR'>(DEFAULT_STRATEGY.entryLogic);
+  const [exitLogic, setExitLogic] = useState<'AND' | 'OR'>(DEFAULT_STRATEGY.exitLogic);
   const [entryConditions, setEntryConditions] = useState<EntryCondition[]>(DEFAULT_ENTRY_CONDITIONS);
   const [exitConditions, setExitConditions] = useState<ExitCondition[]>(DEFAULT_EXIT_CONDITIONS);
 
@@ -393,54 +285,20 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col gap-4 p-3.5 sm:p-5 text-slate-200 shadow-xl">
-      {/* 頂部標題與快速範本工具列 */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-base sm:text-lg font-bold text-slate-100 flex items-center gap-2">
-              <Calculator className="text-blue-400" size={20} />
-              <span>自訂義量化策略回測系統</span>
-            </h2>
-            <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-blue-950/70 border border-blue-800/60 text-blue-300">
-              獨立函式池 + AND/OR 邏輯運算
-            </span>
-          </div>
-          <p className="text-xs text-slate-400 mt-1">
-            標的：<span className="text-slate-100 font-semibold">{stockName} ({symbol})</span> · 回測兩年歷史股價走勢 · 8大進場函式 · 7大出場函式 · ATR動態風控
-          </p>
-        </div>
-
-        {/* 操盤手預設範本快速載入 */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs text-slate-400 flex items-center gap-1 font-medium">
-            <Sparkles size={13} className="text-amber-400" />
-            操盤手範本:
+      {/* 頂部標題 */}
+      <div className="flex flex-col gap-1 border-b border-slate-800/80 pb-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h2 className="text-base sm:text-lg font-bold text-slate-100 flex items-center gap-2">
+            <Calculator className="text-blue-400" size={20} />
+            <span>自訂義量化策略回測系統</span>
+          </h2>
+          <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-blue-950/70 border border-blue-800/60 text-blue-300">
+            獨立函式池 + AND/OR 邏輯運算
           </span>
-          <button
-            onClick={() => loadPreset('turtle')}
-            className="px-2.5 py-1 text-xs rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
-          >
-            🏆 海龜30日突破
-          </button>
-          <button
-            onClick={() => loadPreset('ma_kd')}
-            className="px-2.5 py-1 text-xs rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
-          >
-            ⚡ 均線+KD共振
-          </button>
-          <button
-            onClick={() => loadPreset('macd_vol')}
-            className="px-2.5 py-1 text-xs rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
-          >
-            🚀 MACD翻正+爆量
-          </button>
-          <button
-            onClick={() => loadPreset('rsi_reversal')}
-            className="px-2.5 py-1 text-xs rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
-          >
-            🛡️ RSI超賣反轉
-          </button>
         </div>
+        <p className="text-xs text-slate-400">
+          標的：<span className="text-slate-100 font-semibold">{stockName} ({symbol})</span> · 回測兩年歷史股價走勢 · 8大進場函式 · 7大出場函式 · ATR動態風控
+        </p>
       </div>
 
       {/* 核心策略參數配置區 (8進場 + 7出場 + 動態風控) */}
@@ -774,21 +632,11 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
       {/* 回測績效報表區塊 (四大核心指標 + 次要專業指標 + 資產權益圖 + 逐筆成交明細) */}
       {result && (
         <div className="flex flex-col gap-3.5 mt-2 border-t border-slate-800/80 pt-4">
-          {/* 回測結果標題列與儲存按鈕 */}
+          {/* 回測結果操作列 */}
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-bold text-sm sm:text-base text-slate-100">
-                  {result.strategyName}
-                </span>
-                <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-blue-950/80 border border-blue-800 text-blue-300">
-                  兩年歷史走勢 ({result.dateRange.start} ~ {result.dateRange.end})
-                </span>
-              </div>
-              <span className="text-xs text-slate-400 mt-0.5 block">
-                進場邏輯: {entryLogic} ({activeEntryCount}項) · 出場邏輯: {exitLogic} ({activeExitCount}項) · ATR動態風控: 初始{atrInitialStopMultiplier > 0 ? `${atrInitialStopMultiplier}x` : '停用'} / 移動停利{atrTrailingStopMultiplier > 0 ? `${atrTrailingStopMultiplier}x` : '停用'}
-              </span>
-            </div>
+            <span className="text-xs text-slate-400">
+              進場: {entryLogic} ({activeEntryCount}項) · 出場: {exitLogic} ({activeExitCount}項) · ATR風控: 初始{atrInitialStopMultiplier > 0 ? `${atrInitialStopMultiplier}x` : '停用'} / 移動停利{atrTrailingStopMultiplier > 0 ? `${atrTrailingStopMultiplier}x` : '停用'}
+            </span>
 
             <div className="flex items-center gap-2">
               <button

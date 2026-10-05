@@ -168,3 +168,115 @@ export interface WatchlistItem {
   change?: number;
   changePercent?: number;
 }
+
+export type StrategySignalStatus = 'BUY' | 'HOLD' | 'SELL' | 'WAIT';
+
+export interface StockStrategySignal {
+  status: StrategySignalStatus;
+  statusLabel: string;
+  statusDesc: string;
+  badgeClass: string;
+  entryDate?: string;
+  entryPrice?: number;
+  exitPrice?: number;
+  holdingDays?: number;
+  returnPct?: number;
+  winRate: number;
+  expectancyPct: number;
+  expectancyAmount: number;
+  maxDrawdownPct: number;
+  totalTrades: number;
+  profitFactor: number;
+  totalReturnPct: number;
+}
+
+// ==========================================
+// 基本面與財報 8 季量化模型 & 動態估值型別
+// ==========================================
+
+export type TechCategory =
+  | '晶圓代工'
+  | '先進封裝'
+  | 'IC設計'
+  | '手機與AI晶片'
+  | 'AI伺服器'
+  | '電子製造'
+  | '雲端'
+  | '散熱'
+  | '電源供應器'
+  | '晶片設計'
+  | 'ABF載板';
+
+export interface QuarterlyFinancialReport {
+  quarter: string; // e.g. '2024Q3', '2024Q2'
+  revenue: number; // 營業收入 (億新台幣)
+  revenueYoY: number; // 營收年增率 (%)
+  revenueQoQ: number; // 營收季增率 (%)
+  grossMargin: number; // 毛利率 (%)
+  operatingMargin: number; // 營業利益率 (%)
+  netMargin: number; // 稅後淨利率 (%)
+  eps: number; // 單季 EPS (元)
+  roe: number; // 年化/單季化 ROE (%)
+  operatingCashFlow: number; // 營業現金流 (億新台幣)
+  freeCashFlow: number; // 自由現金流 (億新台幣)
+  debtRatio: number; // 負債比率 (%)
+  currentRatio: number; // 流動比率 (%)
+}
+
+export interface FundamentalScores {
+  growthScore: number; // 成長性 (YoY / QoQ) 0-100
+  grossMarginScore: number; // 毛利率表現與趨勢 0-100
+  operatingScore: number; // 營益獲利品質 0-100
+  roeScore: number; // ROE 資本效率 0-100
+  cashFlowScore: number; // 現金流健康度 0-100
+  debtHealthScore: number; // 負債健康度 0-100
+  overallScore: number; // 基本面量化總評分 0-100
+  opportunityNote: string; // 機會亮點解析
+  riskNote: string; // 風險防守提示
+}
+
+export type ValuationStage = 'CHEAP' | 'FAIR_LOW' | 'FAIR_HIGH' | 'EXPENSIVE';
+
+export interface ValuationPrices {
+  cheapPrice: number; // 【便宜價】 (PEG 60% + P/E 40%)
+  fairPrice: number; // 【合理價】 (PEG 60% + P/E 40%)
+  expensivePrice: number; // 【昂貴價】 (PEG 60% + P/E 40%)
+  pegRatio: number; // 當前 PEG 比值
+  pegValuation: {
+    cheap: number;
+    fair: number;
+    expensive: number;
+  };
+  peBandValuation: {
+    lowPE: number;
+    midPE: number;
+    highPE: number;
+    cheap: number;
+    fair: number;
+    expensive: number;
+  };
+  stage: ValuationStage;
+  stageLabel: string;
+  stageBadgeClass: string;
+  discountToFairPct: number; // 距合理價之安全邊際折溢價率 (%)
+  growthPotentialScore: number; // 股價成長能力評分 (0-100)
+}
+
+export interface FundamentalRecommendation {
+  rank: number;
+  symbol: string;
+  name: string;
+  category: TechCategory;
+  currentPrice: number;
+  change: number;
+  changePercent: number;
+  trailing12mEPS: number; // 近 4 季累計 EPS
+  expectedGrowthRate: number; // 預估複合成長率 G (%)
+  forwardPE: number; // 預估本益比
+  financials8Q: QuarterlyFinancialReport[];
+  scores: FundamentalScores;
+  valuation: ValuationPrices;
+  latestRevenueYoY: number;
+  latestRevenueMoM: number;
+  highlights: string[];
+}

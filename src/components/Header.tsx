@@ -1,17 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { POPULAR_TAIWAN_STOCKS, TaiwanStockInfo } from '../data/taiwanStocks.ts';
-import { Search, TrendingUp, ShieldCheck, DatabaseZap, Calculator } from 'lucide-react';
+import { Search, TrendingUp, ShieldCheck, Calculator, Sparkles } from 'lucide-react';
 
 interface HeaderProps {
   currentSymbol: string;
   onSelectStock: (symbol: string, name: string) => void;
   onOpenRiskCalc?: () => void;
+  activeView?: 'trading' | 'fundamentals';
+  onSwitchView?: (view: 'trading' | 'fundamentals') => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentSymbol,
   onSelectStock,
   onOpenRiskCalc,
+  activeView = 'trading',
+  onSwitchView,
 }) => {
   const [searchOpen, setSearchOpen] = useState<boolean>(false);
   const [query, setQuery] = useState<string>('');
@@ -99,13 +103,40 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
+        {/* View Switcher: Live Trading vs Tech Fundamentals */}
+        {onSwitchView && (
+          <div className="hidden md:flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs shadow-xs">
+            <button
+              onClick={() => onSwitchView('trading')}
+              className={`px-3 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
+                activeView === 'trading'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              即時行情與回測
+            </button>
+            <button
+              onClick={() => onSwitchView('fundamentals')}
+              className={`px-3 py-1.5 rounded-md font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeView === 'fundamentals'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Sparkles size={12} className={activeView === 'fundamentals' ? 'text-amber-300' : 'text-amber-400'} />
+              <span>科技股財報估值 (Top 20)</span>
+            </button>
+          </div>
+        )}
+
         {/* Search Bar */}
-        <div ref={searchContainerRef} className="relative flex-1 max-w-xs sm:max-w-sm hidden sm:block">
+        <div ref={searchContainerRef} className="relative flex-1 max-w-xs hidden lg:block">
           <form onSubmit={handleDirectSearch} className="relative">
             <Search size={14} className="absolute left-3 top-2.5 text-slate-400 pointer-events-none" />
             <input
               type="text"
-              placeholder="搜尋台股代號/名稱 (如 2330, 鴻海, 0050)..."
+              placeholder="搜尋台股代號/名稱 (如 2330, 鴻海, 廣達)..."
               value={query}
               onChange={e => {
                 setQuery(e.target.value);
@@ -146,27 +177,15 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Right Tools: Zero-DB Privacy Badge, Yahoo Finance Live, Risk Calc */}
+        {/* Right Tools: Risk Calc */}
         <div className="flex items-center gap-2">
           {/* Mobile search button */}
           <button
             onClick={() => setSearchOpen(!searchOpen)}
-            className="sm:hidden p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-900 transition-colors"
+            className="lg:hidden p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-900 transition-colors"
           >
             <Search size={18} />
           </button>
-
-          {/* Yahoo Finance Data Engine Indicator */}
-          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-mono font-medium">Yahoo Finance 直連</span>
-          </div>
-
-          {/* Zero DB Architecture Badge */}
-          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-950/40 border border-blue-800/50 text-[11px] text-blue-300">
-            <ShieldCheck size={13} className="text-blue-400" />
-            <span>免資料庫·私密存儲</span>
-          </div>
 
           {/* Risk Calculator Action Button */}
           {onOpenRiskCalc && (
@@ -184,14 +203,14 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Mobile Search Overlay */}
       {searchOpen && (
-        <div className="sm:hidden px-3 pb-3 bg-slate-950 border-b border-slate-800">
+        <div className="lg:hidden px-3 pb-3 bg-slate-950 border-b border-slate-800">
           <form onSubmit={handleDirectSearch} className="relative">
             <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
             <input
               ref={searchInputRef}
               autoFocus
               type="text"
-              placeholder="輸入台股代號或名稱 (例如 2330, 鴻海)"
+              placeholder="輸入台股代號或名稱 (例如 2330, 鴻海, 3017)"
               value={query}
               onChange={e => setQuery(e.target.value)}
               className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-100"

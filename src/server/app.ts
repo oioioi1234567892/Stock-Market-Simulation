@@ -268,3 +268,111 @@ app.post('/api/stocks/batch-candles', async (req: Request, res: Response) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// 5. Health Check
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// 6. Watchlist API (In-memory fallback for high-speed local persistence)
+interface MemoryWatchlistItem {
+  id: number;
+  userId: string;
+  symbol: string;
+  name: string;
+  market: string;
+  targetBuyPrice: string | null;
+  targetSellPrice: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+let nextWatchlistId = 100;
+const memoryWatchlists: MemoryWatchlistItem[] = POPULAR_TAIWAN_STOCKS.slice(0, 6).map((item, idx) => ({
+  id: idx + 1,
+  userId: 'local',
+  symbol: item.symbol,
+  name: item.name,
+  market: item.market,
+  targetBuyPrice: null,
+  targetSellPrice: null,
+  notes: `${item.category} 核心標的`,
+  createdAt: new Date().toISOString(),
+}));
+
+app.get('/api/watchlist', (_req: Request, res: Response) => {
+  res.json(memoryWatchlists);
+});
+
+app.post('/api/watchlist', (req: Request, res: Response) => {
+  const { symbol, name, market, targetBuyPrice, targetSellPrice, notes } = req.body;
+  if (!symbol || !name) {
+    return res.status(400).json({ error: '股票代號與名稱為必填' });
+  }
+  const existingIdx = memoryWatchlists.findIndex(w => w.symbol === symbol);
+  if (existingIdx >= 0) {
+    memoryWatchlists[existingIdx] = {
+      ...memoryWatchlists[existingIdx],
+      name,
+      market: market || 'TWSE',
+      targetBuyPrice: targetBuyPrice || null,
+      targetSellPrice: targetSellPrice || null,
+      notes: notes || null,
+    };
+    return res.json({ success: true, item: memoryWatchlists[existingIdx] });
+  }
+  const newItem: MemoryWatchlistItem = {
+    id: nextWatchlistId++,
+    userId: 'local',
+    symbol,
+    name,
+    market: market || 'TWSE',
+    targetBuyPrice: targetBuyPrice ? String(targetBuyPrice) : null,
+    targetSellPrice: targetSellPrice ? String(targetSellPrice) : null,
+    notes: notes || null,
+    createdAt: new Date().toISOString(),
+  };
+  memoryWatchlists.unshift(newItem);
+  res.json({ success: true, item: newItem });
+});
+
+app.delete('/api/watchlist/:id', (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const idx = memoryWatchlists.findIndex(w => w.id === id);
+  if (idx >= 0) {
+    memoryWatchlists.splice(idx, 1);
+  }
+  res.json({ success: true });
+});
+
+// 7. Backtest History API
+let nextBacktestId = 1;
+const memoryBacktests: any[] = [];
+
+app.get('/api/backtests', (_req: Request, res: Response) => {
+  res.json(memoryBacktests);
+});
+
+app.post('/api/backtests', (req: Request, res: Response) => {
+  const newRecord = {
+    id: nextBacktestId++,
+    ...req.body,
+    createdAt: new Date().toISOString(),
+  };
+  memoryBacktests.unshift(newRecord);
+  res.json({ success: true, record: newRecord });
+});
+
+app.delete('/api/backtests/:id', (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const idx = memoryBacktests.findIndex(b => b.id === id);
+  if (idx >= 0) {
+    memoryBacktests.splice(idx, 1);
+  }
+  res.json({ success: true });
+});
+
+// 8. Auth sync compatibility
+app.post('/api/auth/sync', (req: Request, res: Response) => {
+  res.json({ success: true, user: req.body });
+});

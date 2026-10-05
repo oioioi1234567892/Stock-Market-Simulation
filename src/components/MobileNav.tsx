@@ -1,7 +1,7 @@
 import React from 'react';
-import { CandlestickChart, Activity, Sparkles, Calculator, Bookmark } from 'lucide-react';
+import { CandlestickChart, PlayCircle, Bookmark, ShieldAlert, Sparkles } from 'lucide-react';
 
-export type ActiveMobileTab = 'chart' | 'depth' | 'radar' | 'backtest' | 'watchlist';
+export type ActiveMobileTab = 'chart' | 'backtest' | 'fundamentals' | 'watchlist';
 
 interface MobileNavProps {
   activeTab: ActiveMobileTab;
@@ -9,58 +9,61 @@ interface MobileNavProps {
   onOpenRiskCalc?: () => void;
 }
 
-export const MobileNav: React.FC<MobileNavProps> = ({ activeTab, onChangeTab }) => {
+export const MobileNav: React.FC<MobileNavProps> = ({ activeTab, onChangeTab, onOpenRiskCalc }) => {
   return (
-    <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 border-t border-slate-800 backdrop-blur-lg px-1 py-1 flex items-center justify-around safe-area-bottom">
+    <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 border-t border-slate-800/90 backdrop-blur-xl px-1.5 py-1 flex items-center justify-around safe-area-bottom shadow-2xl">
       <button
         onClick={() => onChangeTab('chart')}
-        className={`flex-1 flex flex-col items-center py-1 transition-colors ${
-          activeTab === 'chart' ? 'text-blue-500 font-bold' : 'text-slate-400 hover:text-slate-200'
+        className={`flex-1 flex flex-col items-center py-1.5 transition-all ${
+          activeTab === 'chart' ? 'text-blue-400 font-bold' : 'text-slate-400 hover:text-slate-200'
         }`}
       >
-        <CandlestickChart size={18} />
-        <span className="text-[10px] mt-0.5">K線技術</span>
-      </button>
-
-      <button
-        onClick={() => onChangeTab('depth')}
-        className={`flex-1 flex flex-col items-center py-1 transition-colors ${
-          activeTab === 'depth' ? 'text-blue-500 font-bold' : 'text-slate-400 hover:text-slate-200'
-        }`}
-      >
-        <Activity size={18} />
-        <span className="text-[10px] mt-0.5">五檔盤口</span>
-      </button>
-
-      <button
-        onClick={() => onChangeTab('radar')}
-        className={`flex-1 flex flex-col items-center py-1 transition-colors ${
-          activeTab === 'radar' ? 'text-blue-500 font-bold' : 'text-slate-400 hover:text-slate-200'
-        }`}
-      >
-        <Sparkles size={18} />
-        <span className="text-[10px] mt-0.5">信號雷達</span>
+        <CandlestickChart size={18} className={activeTab === 'chart' ? 'stroke-[2.5]' : ''} />
+        <span className="text-[10px] mt-0.5 tracking-tight">K線技術</span>
       </button>
 
       <button
         onClick={() => onChangeTab('backtest')}
-        className={`flex-1 flex flex-col items-center py-1 transition-colors ${
-          activeTab === 'backtest' ? 'text-blue-500 font-bold' : 'text-slate-400 hover:text-slate-200'
+        className={`flex-1 flex flex-col items-center py-1.5 transition-all ${
+          activeTab === 'backtest' ? 'text-blue-400 font-bold' : 'text-slate-400 hover:text-slate-200'
         }`}
       >
-        <Calculator size={18} />
-        <span className="text-[10px] mt-0.5">策略回測</span>
+        <PlayCircle size={18} className={activeTab === 'backtest' ? 'stroke-[2.5]' : ''} />
+        <span className="text-[10px] mt-0.5 tracking-tight">量化回測</span>
+      </button>
+
+      <button
+        onClick={() => onChangeTab('fundamentals')}
+        className={`flex-1 flex flex-col items-center py-1.5 transition-all ${
+          activeTab === 'fundamentals' ? 'text-blue-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+        }`}
+      >
+        <div className="relative">
+          <Sparkles size={18} className={activeTab === 'fundamentals' ? 'text-blue-400' : 'text-amber-400'} />
+          <span className="absolute -top-0.5 -right-1 w-1.5 h-1.5 bg-blue-400 rounded-full animate-ping opacity-75" />
+        </div>
+        <span className="text-[10px] mt-0.5 tracking-tight font-medium">財報估值</span>
       </button>
 
       <button
         onClick={() => onChangeTab('watchlist')}
-        className={`flex-1 flex flex-col items-center py-1 transition-colors ${
-          activeTab === 'watchlist' ? 'text-blue-500 font-bold' : 'text-slate-400 hover:text-slate-200'
+        className={`flex-1 flex flex-col items-center py-1.5 transition-all ${
+          activeTab === 'watchlist' ? 'text-blue-400 font-bold' : 'text-slate-400 hover:text-slate-200'
         }`}
       >
-        <Bookmark size={18} />
-        <span className="text-[10px] mt-0.5">自選股</span>
+        <Bookmark size={18} className={activeTab === 'watchlist' ? 'stroke-[2.5]' : ''} />
+        <span className="text-[10px] mt-0.5 tracking-tight">自選池</span>
       </button>
+
+      {onOpenRiskCalc && (
+        <button
+          onClick={onOpenRiskCalc}
+          className="flex-1 flex flex-col items-center py-1.5 text-amber-400 hover:text-amber-300 transition-all"
+        >
+          <ShieldAlert size={18} />
+          <span className="text-[10px] mt-0.5 tracking-tight font-medium">風控算力</span>
+        </button>
+      )}
     </nav>
   );
 };

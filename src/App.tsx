@@ -1,17 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { StockQuote, CandleData, TradeRecord, WatchlistItem, StrategyConfig } from './types/stock.ts';
 import { fetchStockQuote, fetchStockHistory, getWatchlist, addWatchlist, deleteWatchlist } from './services/api.ts';
+import { evaluateStrategySignal, DEFAULT_STRATEGY } from './utils/backtestEngine.ts';
 import { Header } from './components/Header.tsx';
 import { StockSummary } from './components/StockSummary.tsx';
 import { InteractiveChart } from './components/InteractiveChart.tsx';
-import { FiveLevelDepth } from './components/FiveLevelDepth.tsx';
-import { TraderSignalRadar } from './components/TraderSignalRadar.tsx';
 import { StrategyBacktester } from './components/StrategyBacktester.tsx';
 import { WatchlistManager } from './components/WatchlistManager.tsx';
+import { TechFundamentalScanner } from './components/TechFundamentalScanner.tsx';
 import { PythonScriptModal } from './components/PythonScriptModal.tsx';
 import { RiskCalculatorModal } from './components/RiskCalculatorModal.tsx';
 import { MobileNav, ActiveMobileTab } from './components/MobileNav.tsx';
-import { RefreshCw, TrendingUp, Activity, Sparkles, ShieldCheck } from 'lucide-react';
+import { RefreshCw, TrendingUp, Sparkles, LineChart } from 'lucide-react';
 
 export default function App() {
   // Active Stock State
@@ -29,18 +29,19 @@ export default function App() {
   // Loading & Error States
   const [isQuoteLoading, setIsQuoteLoading] = useState<boolean>(true);
   const [isCandlesLoading, setIsCandlesLoading] = useState<boolean>(true);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [, setErrorMsg] = useState<string | null>(null);
 
   // Watchlist state for fast starring
   const [userWatchlist, setUserWatchlist] = useState<WatchlistItem[]>([]);
 
-  // Modals & Tools
-  const [isPythonModalOpen, setIsPythonModalOpen] = useState<boolean>(false);
+  // Modals & Active Strategy
   const [isRiskCalcOpen, setIsRiskCalcOpen] = useState<boolean>(false);
-  const [activeStrategy, setActiveStrategy] = useState<StrategyConfig | undefined>();
+  const [isPythonModalOpen, setIsPythonModalOpen] = useState<boolean>(false);
+  const [activeStrategy, setActiveStrategy] = useState<StrategyConfig>(DEFAULT_STRATEGY);
 
-  // Mobile Active Tab
-  const [activeMobileTab, setActiveMobileTab] = useState<ActiveMobileTab>('chart');
+  // Desktop Active View & Mobile Active Tab
+  const [desktopActiveView, setDesktopActiveView] = useState<'trading' | 'fundamentals'>('fundamentals');
+  const [activeMobileTab, setActiveMobileTab] = useState<ActiveMobileTab>('fundamentals');
 
   // Fetch Watchlist for active stock starring check
   const refreshWatchlist = useCallback(async () => {
@@ -80,7 +81,7 @@ export default function App() {
     }
   };
 
-  // Fetch Quote from Yahoo Finance
+  // Fetch Quote
   const loadQuote = useCallback(async (sym: string) => {
     try {
       setIsQuoteLoading(true);
@@ -94,7 +95,7 @@ export default function App() {
     }
   }, []);
 
-  // Fetch Historical Candles from Yahoo Finance
+  // Fetch Historical Candles
   const loadCandles = useCallback(async (sym: string, range: string, interval: string) => {
     try {
       setIsCandlesLoading(true);
@@ -139,53 +140,139 @@ export default function App() {
   const handleSelectStock = (symbol: string, name: string) => {
     setCurrentSymbol(symbol);
     setStockName(name);
+    setDesktopActiveView('trading');
     setActiveMobileTab('chart');
   };
 
+  // Compute active stock strategy signal & quantitative metrics (winRate, expectancy, MDD)
+  const currentStrategySignal = useMemo(() => {
+    const c = twoYearCandles.length > 0 ? twoYearCandles : candles;
+    if (!c || c.length < 35) return undefined;
+    return evaluateStrategySignal(c, activeStrategy || DEFAULT_STRATEGY, currentSymbol, stockName);
+  }, [twoYearCandles, candles, activeStrategy, currentSymbol, stockName]);
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans pb-16 sm:pb-6">
-      {/* Top Navbar */}
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans pb-24 sm:pb-8">
+      {/* Top Header with Navigation & Live Market Clock */}
       <Header
         currentSymbol={currentSymbol}
         onSelectStock={handleSelectStock}
         onOpenRiskCalc={() => setIsRiskCalcOpen(true)}
+        activeView={desktopActiveView}
+        onSwitchView={(v) => {
+          setDesktopActiveView(v);
+          if (v === 'fundamentals') setActiveMobileTab('fundamentals');
+          else setActiveMobileTab('chart');
+        }}
       />
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-2 sm:px-4 py-3 sm:py-4 flex flex-col gap-3">
-        {/* Error Notification Banner if any */}
-        {errorMsg && (
-          <div className="bg-amber-950/60 border border-amber-800/80 text-amber-300 text-xs px-3 py-2 rounded-lg flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-amber-400" />
-              <span>{errorMsg} (已啟用高保真備援技術分析數據流)</span>
+      {/* Main Content Layout */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-3 sm:py-4 flex flex-col gap-3.5 sm:gap-4">
+        {/* Mobile View Tab Filter Switcher */}
+        <div className="sm:hidden flex items-center bg-slate-900 border border-slate-800 rounded-xl p-1 text-xs gap-1 shadow-sm">
+          <button
+            onClick={() => {
+              setActiveMobileTab('fundamentals');
+              setDesktopActiveView('fundamentals');
+            }}
+            className={`flex-1 py-1.5 rounded-lg font-bold text-center transition-all flex items-center justify-center gap-1 ${
+              activeMobileTab === 'fundamentals'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Sparkles size={13} className={activeMobileTab === 'fundamentals' ? 'text-amber-300' : 'text-amber-400'} />
+            <span>財報估值</span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveMobileTab('chart');
+              setDesktopActiveView('trading');
+            }}
+            className={`flex-1 py-1.5 rounded-lg font-semibold text-center transition-all ${
+              activeMobileTab === 'chart'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            K線指標
+          </button>
+          <button
+            onClick={() => {
+              setActiveMobileTab('backtest');
+              setDesktopActiveView('trading');
+            }}
+            className={`flex-1 py-1.5 rounded-lg font-semibold text-center transition-all ${
+              activeMobileTab === 'backtest'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            量化回測
+          </button>
+          <button
+            onClick={() => {
+              setActiveMobileTab('watchlist');
+              setDesktopActiveView('trading');
+            }}
+            className={`flex-1 py-1.5 rounded-lg font-semibold text-center transition-all ${
+              activeMobileTab === 'watchlist'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            自選池
+          </button>
+        </div>
+
+        {/* 1. Tech Fundamental Scanner & Dynamic Valuation Page View */}
+        <div className={`${
+          activeMobileTab === 'fundamentals' || (desktopActiveView === 'fundamentals' && activeMobileTab !== 'chart' && activeMobileTab !== 'backtest' && activeMobileTab !== 'watchlist')
+            ? 'block'
+            : 'hidden'
+        }`}>
+          <TechFundamentalScanner onSelectStockForChart={handleSelectStock} />
+        </div>
+
+        {/* 2. Live Trading Terminal & Backtest System View */}
+        <div className={`${
+          desktopActiveView === 'trading' || (activeMobileTab !== 'fundamentals' && desktopActiveView !== 'fundamentals')
+            ? 'flex flex-col gap-3.5 sm:gap-4'
+            : 'hidden'
+        }`}>
+          {/* Real-time Quote Summary Banner */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-400 flex items-center gap-1.5 font-medium">
+                <TrendingUp size={14} className="text-red-400" />
+                即時行情監控面板 · 整合 Yahoo Finance 即時串接
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    loadQuote(currentSymbol);
+                    loadCandles(currentSymbol, currentRange, currentInterval);
+                  }}
+                  className="text-xs text-slate-400 hover:text-white flex items-center gap-1 bg-slate-900 border border-slate-800 hover:border-slate-700 px-2 py-1 rounded-md transition-colors cursor-pointer"
+                  title="重新整理數據"
+                >
+                  <RefreshCw size={12} className={isQuoteLoading ? 'animate-spin' : ''} />
+                  <span className="hidden sm:inline">重新整理</span>
+                </button>
+              </div>
             </div>
-            <button
-              onClick={() => {
-                loadQuote(currentSymbol);
-                loadCandles(currentSymbol, currentRange, currentInterval);
-              }}
-              className="text-amber-200 underline text-xs hover:text-white"
-            >
-              重新整理
-            </button>
+
+            <StockSummary
+              quote={quote}
+              isLoading={isQuoteLoading}
+              isInWatchlist={isInWatchlist}
+              onToggleWatchlist={handleToggleWatchlist}
+              strategySignal={currentStrategySignal}
+            />
           </div>
-        )}
 
-        {/* Top Stock Summary Bar */}
-        <StockSummary
-          quote={quote}
-          isLoading={isQuoteLoading}
-          isInWatchlist={isInWatchlist}
-          onToggleWatchlist={handleToggleWatchlist}
-          onOpenRiskCalc={() => setIsRiskCalcOpen(true)}
-          onOpenDepth={() => setActiveMobileTab('depth')}
-        />
-
-        {/* Mobile & Desktop View Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
-          {/* Main Chart Column (3 Cols on Desktop / Shown when activeTab === 'chart') */}
-          <div className={`lg:col-span-3 flex flex-col gap-3 ${activeMobileTab === 'chart' ? 'block' : 'hidden lg:flex'}`}>
+          {/* Desktop & Mobile Chart Section */}
+          <div className={`${activeMobileTab === 'chart' || desktopActiveView === 'trading' ? 'block' : 'hidden sm:block'}`}>
             <InteractiveChart
               candles={candles}
               symbol={currentSymbol}
@@ -193,48 +280,27 @@ export default function App() {
               trades={backtestTrades}
               isLoading={isCandlesLoading}
               selectedRange={currentRange}
-              onRangeChange={(range: string) => {
-                setCurrentRange(range);
-                loadCandles(currentSymbol, range, currentInterval);
-              }}
-              onOpenRiskCalc={() => setIsRiskCalcOpen(true)}
+              onRangeChange={setCurrentRange}
             />
           </div>
 
-          {/* Right Sidebar Column (1 Col on Desktop) - Tape Depth & Signal Radar */}
-          <div className="flex flex-col gap-3">
-            {/* Five Level Depth (Visible on desktop or when activeMobileTab === 'depth') */}
-            <div className={`${activeMobileTab === 'depth' ? 'block' : 'hidden lg:block'}`}>
-              <FiveLevelDepth quote={quote} stockName={stockName} />
-            </div>
-
-            {/* Trader Signal Radar (Visible on desktop or when activeMobileTab === 'radar') */}
-            <div className={`${activeMobileTab === 'radar' ? 'block' : 'hidden lg:block'}`}>
-              <TraderSignalRadar
-                candles={twoYearCandles.length > 0 ? twoYearCandles : candles}
-                quote={quote}
-                stockName={stockName}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Lower Section: Backtesting Lab & Watchlist Management */}
-        <div className="flex flex-col gap-3">
-          {/* Strategy Backtesting Lab (Visible on desktop or when mobile activeTab === 'backtest') */}
-          <div className={`${activeMobileTab === 'backtest' ? 'block' : 'hidden sm:block'}`}>
+          {/* Strategy Backtest Section */}
+          <div className={`${activeMobileTab === 'backtest' || desktopActiveView === 'trading' ? 'block' : 'hidden sm:block'}`}>
             <StrategyBacktester
               candles={twoYearCandles.length > 0 ? twoYearCandles : candles}
               symbol={currentSymbol}
               stockName={stockName}
-              onOpenPythonModal={() => setIsPythonModalOpen(true)}
+              onOpenPythonModal={(strat) => {
+                if (strat) setActiveStrategy(strat);
+                setIsPythonModalOpen(true);
+              }}
               onTradesGenerated={setBacktestTrades}
               onStrategyChange={setActiveStrategy}
             />
           </div>
 
-          {/* Watchlist & History (Visible on desktop or when mobile activeTab === 'watchlist') */}
-          <div className={`${activeMobileTab === 'watchlist' ? 'block' : 'hidden sm:block'}`}>
+          {/* Watchlist & History */}
+          <div className={`${activeMobileTab === 'watchlist' || desktopActiveView === 'trading' ? 'block' : 'hidden sm:block'}`}>
             <WatchlistManager
               currentSymbol={currentSymbol}
               onSelectStock={handleSelectStock}
@@ -247,7 +313,12 @@ export default function App() {
       {/* Mobile Sticky Bottom Navigation */}
       <MobileNav
         activeTab={activeMobileTab}
-        onChangeTab={setActiveMobileTab}
+        onChangeTab={(tab) => {
+          setActiveMobileTab(tab);
+          if (tab === 'fundamentals') setDesktopActiveView('fundamentals');
+          else setDesktopActiveView('trading');
+        }}
+        onOpenRiskCalc={() => setIsRiskCalcOpen(true)}
       />
 
       {/* Python Script Export Modal */}
@@ -259,7 +330,7 @@ export default function App() {
         strategy={activeStrategy}
       />
 
-      {/* Risk & Position Sizing Calculator Modal */}
+      {/* Top Trader Risk Management & Position Sizing Calculator Modal */}
       <RiskCalculatorModal
         isOpen={isRiskCalcOpen}
         onClose={() => setIsRiskCalcOpen(false)}

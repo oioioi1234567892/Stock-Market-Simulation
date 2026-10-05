@@ -1,4 +1,14 @@
-import { CandleData, StrategyConfig, BacktestResult, TradeRecord, EquityPoint, OpenPosition } from '../types/stock.ts';
+import {
+  CandleData,
+  StrategyConfig,
+  BacktestResult,
+  TradeRecord,
+  EquityPoint,
+  OpenPosition,
+  StockStrategySignal,
+  EntryCondition,
+  ExitCondition,
+} from '../types/stock.ts';
 
 // =========================================================================
 // 8 大進場獨立函式池 (8 Independent Entry Functions)
@@ -549,4 +559,239 @@ export function runBacktest(
     equityCurve,
     openPosition,
   };
+}
+
+export const DEFAULT_ENTRY_CONDITIONS: EntryCondition[] = [
+  {
+    id: 'entry-1',
+    type: 'checkMaGoldenCross',
+    name: '周月金叉 (MA5>MA20)',
+    description: 'MA5 向上突破 MA20 月線瞬間（單日穿透觸發型。若中途停利出場，需待死叉後重新金叉方能再次進場）',
+    enabled: true,
+  },
+  {
+    id: 'entry-2',
+    type: 'checkKdGoldenCross',
+    name: 'KD黃金交叉',
+    description: 'KD 指標 K值由下往上穿越 D值 (9,3,3)',
+    enabled: false,
+  },
+  {
+    id: 'entry-3',
+    type: 'checkMacdGoldenCross',
+    name: 'MACD黃金交叉 (OSC 負翻正)',
+    description: 'MACD 柱狀體由負翻正，短波多頭動能啟動',
+    enabled: false,
+  },
+  {
+    id: 'entry-4',
+    type: 'checkDifGtMacd',
+    name: 'DIF-MACD>0 (多頭動能延續)',
+    description: '快線位於慢線上方，柱體大於 0 多方強勢控盤',
+    enabled: false,
+  },
+  {
+    id: 'entry-5',
+    type: 'checkRsiEntry',
+    name: 'RSI 超賣回升 / 短天期金叉',
+    description: 'RSI 自超賣區(<35)回升翻揚或突破 50 中軸多方強勢區',
+    enabled: false,
+  },
+  {
+    id: 'entry-6',
+    type: 'checkBreakout30dHigh',
+    name: '突破過去30日最高價 (海龜動能)',
+    description: '收盤價突破過去 30 根 K 線最高點 (海龜交易突破法)',
+    enabled: true,
+  },
+  {
+    id: 'entry-7',
+    type: 'checkVolumeSpike',
+    name: '成交量>1.5倍五日平均 (放量攻擊)',
+    description: '當日成交量突破 5 日均量 1.5 倍且收紅 K 實體線',
+    enabled: false,
+  },
+  {
+    id: 'entry-8',
+    type: 'checkCloseAboveMa20',
+    name: '股價站上MA20 (月線生命線)',
+    description: '收盤價穩固站在 20 日月線生命線之上',
+    enabled: true,
+  },
+];
+
+export const DEFAULT_EXIT_CONDITIONS: ExitCondition[] = [
+  {
+    id: 'exit-1',
+    type: 'checkMaDeathCross',
+    name: '周月死叉 (MA5<MA20)',
+    description: 'MA5 均線向下跌破 MA20 月線轉弱',
+    enabled: true,
+  },
+  {
+    id: 'exit-2',
+    type: 'checkKdDeathCross',
+    name: 'KD死亡交叉',
+    description: 'KD 指標 K值由上往下跌破 D值 (高檔動能背離)',
+    enabled: false,
+  },
+  {
+    id: 'exit-3',
+    type: 'checkMacdDeathCross',
+    name: 'MACD死亡交叉',
+    description: 'MACD 柱狀體由正翻負，多方動能竭盡',
+    enabled: false,
+  },
+  {
+    id: 'exit-4',
+    type: 'checkDifLtMacd',
+    name: 'DIF-MACD<0',
+    description: '快線向下跌破慢線，空頭動能擴散',
+    enabled: false,
+  },
+  {
+    id: 'exit-5',
+    type: 'checkRsiExit',
+    name: 'RSI 超買回檔',
+    description: 'RSI 自 70 超買區向下跌破，或觸及 80 極度鈍化警戒',
+    enabled: false,
+  },
+  {
+    id: 'exit-6',
+    type: 'checkBreakdown30dHigh',
+    name: '跌破過去30日高價防守線',
+    description: '自 30 日波段最高點回撤達 3% 防守線或跌破 30 日低點',
+    enabled: false,
+  },
+  {
+    id: 'exit-7',
+    type: 'checkCloseBelowMa20',
+    name: '股價跌破MA20',
+    description: '收盤價向下跌破 20 日月線生命線支撐',
+    enabled: true,
+  },
+];
+
+export const DEFAULT_STRATEGY: StrategyConfig = {
+  name: '海龜30日突破動量量化策略',
+  entryLogic: 'AND',
+  exitLogic: 'OR',
+  entryConditions: DEFAULT_ENTRY_CONDITIONS,
+  exitConditions: DEFAULT_EXIT_CONDITIONS,
+  atrInitialStopMultiplier: 2.0,
+  atrTrailingStopMultiplier: 3.0,
+  initialCapital: 1000000,
+  positionSizing: 'ALL_IN',
+  transactionFeePct: 0.1425,
+  taxPct: 0.3,
+};
+
+export function evaluateStrategySignal(
+  candles: CandleData[],
+  strategy: StrategyConfig,
+  symbol: string,
+  name: string
+): StockStrategySignal {
+  if (!candles || candles.length < 35) {
+    return {
+      status: 'WAIT',
+      statusLabel: '空手觀望',
+      statusDesc: 'K線數據不足',
+      badgeClass: 'bg-slate-800 text-slate-400 border-slate-700',
+      winRate: 0,
+      expectancyPct: 0,
+      expectancyAmount: 0,
+      maxDrawdownPct: 0,
+      totalTrades: 0,
+      profitFactor: 0,
+      totalReturnPct: 0,
+    };
+  }
+
+  try {
+    const result = runBacktest(candles, strategy, symbol, name);
+    const lastBar = candles[candles.length - 1];
+
+    const stats = {
+      winRate: result.winRate,
+      expectancyPct: result.expectancyPct,
+      expectancyAmount: result.expectancyAmount,
+      maxDrawdownPct: result.maxDrawdownPct,
+      totalTrades: result.totalTrades,
+      profitFactor: result.profitFactor,
+      totalReturnPct: result.totalReturnPct,
+    };
+
+    // 1. 若目前處於持倉狀態 (openPosition)
+    if (result.openPosition) {
+      if (result.openPosition.entryDate === lastBar.time) {
+        return {
+          status: 'BUY',
+          statusLabel: '買入訊號',
+          statusDesc: `今日滿足進場條件 · 買進價 $${result.openPosition.entryPrice}`,
+          badgeClass: 'bg-red-500/20 text-red-300 border-red-500/60 shadow-xs',
+          entryDate: result.openPosition.entryDate,
+          entryPrice: result.openPosition.entryPrice,
+          holdingDays: 0,
+          returnPct: result.openPosition.unrealizedReturnPct,
+          ...stats,
+        };
+      } else {
+        return {
+          status: 'HOLD',
+          statusLabel: '持倉續抱',
+          statusDesc: `已持股 ${result.openPosition.holdingDays}天 · 未實現 ${result.openPosition.unrealizedReturnPct >= 0 ? '+' : ''}${result.openPosition.unrealizedReturnPct}%`,
+          badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/60 shadow-xs',
+          entryDate: result.openPosition.entryDate,
+          entryPrice: result.openPosition.entryPrice,
+          holdingDays: result.openPosition.holdingDays,
+          returnPct: result.openPosition.unrealizedReturnPct,
+          ...stats,
+        };
+      }
+    }
+
+    // 2. 若目前無部位，檢查今日是否剛好觸發停損/停利/出場平倉
+    if (result.trades && result.trades.length > 0) {
+      const closedTrades = result.trades.filter(t => t.status !== 'OPEN');
+      if (closedTrades.length > 0) {
+        const lastTrade = closedTrades[closedTrades.length - 1];
+        if (lastTrade.exitDate === lastBar.time) {
+          return {
+            status: 'SELL',
+            statusLabel: '賣出訊號',
+            statusDesc: `今日觸發出場平倉 · $${lastTrade.exitPrice} (${lastTrade.exitReason})`,
+            badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/60 shadow-xs',
+            exitPrice: lastTrade.exitPrice,
+            returnPct: lastTrade.returnPct,
+            ...stats,
+          };
+        }
+      }
+    }
+
+    // 3. 否則為無部位且今日未觸發進場之觀望狀態
+    return {
+      status: 'WAIT',
+      statusLabel: '空手觀望',
+      statusDesc: '未達進場條件 · 靜待訊號',
+      badgeClass: 'bg-slate-800/80 text-slate-400 border-slate-700/60',
+      ...stats,
+    };
+  } catch (err) {
+    console.warn(`Evaluation error for ${symbol}:`, err);
+    return {
+      status: 'WAIT',
+      statusLabel: '空手觀望',
+      statusDesc: '條件未觸發',
+      badgeClass: 'bg-slate-800/80 text-slate-400 border-slate-700/60',
+      winRate: 0,
+      expectancyPct: 0,
+      expectancyAmount: 0,
+      maxDrawdownPct: 0,
+      totalTrades: 0,
+      profitFactor: 0,
+      totalReturnPct: 0,
+    };
+  }
 }

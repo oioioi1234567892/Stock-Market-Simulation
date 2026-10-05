@@ -1,6 +1,6 @@
 import React from 'react';
-import { StockQuote } from '../types/stock.ts';
-import { TrendingUp, TrendingDown, Star, ShieldCheck, Zap } from 'lucide-react';
+import { StockQuote, StockStrategySignal } from '../types/stock.ts';
+import { TrendingUp, TrendingDown, Star, ShieldCheck, Sparkles } from 'lucide-react';
 
 interface StockSummaryProps {
   quote: StockQuote | null;
@@ -8,7 +8,7 @@ interface StockSummaryProps {
   isInWatchlist?: boolean;
   onToggleWatchlist?: () => void;
   onOpenRiskCalc?: () => void;
-  onOpenDepth?: () => void;
+  strategySignal?: StockStrategySignal;
 }
 
 export const StockSummary: React.FC<StockSummaryProps> = ({
@@ -16,7 +16,7 @@ export const StockSummary: React.FC<StockSummaryProps> = ({
   isLoading = false,
   isInWatchlist = false,
   onToggleWatchlist,
-  onOpenDepth,
+  strategySignal,
 }) => {
   if (isLoading || !quote) {
     return (
@@ -73,18 +73,6 @@ export const StockSummary: React.FC<StockSummaryProps> = ({
               <span className="text-[11px] font-medium hidden sm:inline">
                 {isInWatchlist ? '已自選' : '加自選'}
               </span>
-            </button>
-          )}
-
-          {/* Five Depth Quick Trigger */}
-          {onOpenDepth && (
-            <button
-              onClick={onOpenDepth}
-              className="p-1.5 px-2 rounded-lg bg-blue-950/40 border border-blue-700/50 hover:border-blue-500 text-blue-300 text-[11px] font-medium flex items-center gap-1 transition-all sm:hidden"
-              title="查看五檔委買賣盤口"
-            >
-              <Zap size={14} className="text-blue-400" />
-              <span>五檔盤口</span>
             </button>
           )}
 
@@ -152,6 +140,77 @@ export const StockSummary: React.FC<StockSummaryProps> = ({
           </span>
         </div>
       </div>
+
+      {/* 策略資訊面板：顯示策略狀態、勝率、期望值、最大回測 */}
+      {strategySignal && (
+        <div className="bg-slate-950/70 border border-slate-800/80 rounded-lg p-2.5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-slate-400 text-[11px] font-sans flex items-center gap-1 font-medium">
+              <ShieldCheck size={13} className="text-yellow-400" />
+              <span>策略狀態:</span>
+            </span>
+            <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold border ${strategySignal.badgeClass}`}>
+              {strategySignal.status === 'BUY' && (
+                <span className="flex h-2 w-2 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                </span>
+              )}
+              {strategySignal.status === 'HOLD' && (
+                <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
+              )}
+              {strategySignal.status === 'SELL' && (
+                <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span>
+              )}
+              {strategySignal.status === 'WAIT' && (
+                <span className="h-2 w-2 rounded-full bg-slate-500"></span>
+              )}
+              <span>{strategySignal.statusLabel}</span>
+            </div>
+            <span className="text-slate-400 text-[11px] truncate" title={strategySignal.statusDesc}>
+              · {strategySignal.statusDesc}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 sm:gap-4 font-mono justify-between sm:justify-end border-t sm:border-t-0 border-slate-800/60 pt-1.5 sm:pt-0">
+            {/* 勝率 */}
+            <div className="flex items-baseline gap-1">
+              <span className="text-[10px] text-slate-500 font-sans">勝率:</span>
+              <span className={`font-bold ${
+                strategySignal.totalTrades > 0
+                  ? strategySignal.winRate >= 60 ? 'text-emerald-400' : strategySignal.winRate >= 50 ? 'text-amber-300' : 'text-slate-300'
+                  : 'text-slate-500'
+              }`}>
+                {strategySignal.totalTrades > 0 ? `${strategySignal.winRate.toFixed(1)}%` : '--'}
+              </span>
+            </div>
+
+            {/* 期望值 */}
+            <div className="flex items-baseline gap-1">
+              <span className="text-[10px] text-slate-500 font-sans">期望值:</span>
+              <span className={`font-bold ${
+                strategySignal.totalTrades > 0
+                  ? strategySignal.expectancyPct > 0 ? 'text-red-400' : strategySignal.expectancyPct < 0 ? 'text-emerald-400' : 'text-slate-300'
+                  : 'text-slate-500'
+              }`}>
+                {strategySignal.totalTrades > 0 ? `${strategySignal.expectancyPct >= 0 ? '+' : ''}${strategySignal.expectancyPct.toFixed(2)}%` : '--'}
+              </span>
+            </div>
+
+            {/* 最大回測 */}
+            <div className="flex items-baseline gap-1">
+              <span className="text-[10px] text-slate-500 font-sans">最大回測:</span>
+              <span className={`font-bold ${
+                strategySignal.totalTrades > 0
+                  ? strategySignal.maxDrawdownPct > 15 ? 'text-rose-400' : 'text-amber-300'
+                  : 'text-slate-500'
+              }`}>
+                {strategySignal.totalTrades > 0 ? `-${Math.abs(strategySignal.maxDrawdownPct).toFixed(2)}%` : '--'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
