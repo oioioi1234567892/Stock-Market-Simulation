@@ -565,7 +565,7 @@ export const TAIWAN_TECH_STOCKS_DATABASE: TechStockFinancialData[] = [
   {
     code: '3324',
     name: '雙鴻',
-    symbol: '3324.TW',
+    symbol: '3324.TWO',
     sector: '散熱模組',
     subCategory: '水冷系統與CDU散熱',
     currentPrice: 710,

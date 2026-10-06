@@ -363,10 +363,26 @@ export function generateTraderInsights(stock: TechStockFinancialData, scores: Fu
   };
 }
 
-// 11. 全市場掃描、評分、同業對比與 Top 20 篩選
-export function runTechFundamentalScan(): AnalyzedTechStock[] {
+// 11. 全市場掃描、評分、同業對比與 Top 20 篩選 (支援 Yahoo Finance 即時報價注入)
+export function runTechFundamentalScan(
+  priceOverrides?: Record<string, { price: number; change?: number; changePercent?: number }>
+): AnalyzedTechStock[] {
   // Step 1: Calculate raw scores and dynamic valuations for all candidate stocks
-  const analyzedList: AnalyzedTechStock[] = TAIWAN_TECH_STOCKS_DATABASE.map((stock: TechStockFinancialData) => {
+  const analyzedList: AnalyzedTechStock[] = TAIWAN_TECH_STOCKS_DATABASE.map((rawStock: TechStockFinancialData) => {
+    const live = priceOverrides?.[rawStock.symbol] || priceOverrides?.[rawStock.code];
+    const currentPrice = live?.price != null && live.price > 0 ? live.price : rawStock.currentPrice;
+    const change = live?.change != null ? live.change : rawStock.change;
+    const changePercent = live?.changePercent != null ? live.changePercent : rawStock.changePercent;
+    const currentPe = rawStock.ttmEps > 0 ? Number((currentPrice / rawStock.ttmEps).toFixed(1)) : rawStock.currentPe;
+
+    const stock: TechStockFinancialData = {
+      ...rawStock,
+      currentPrice,
+      change,
+      changePercent,
+      currentPe,
+    };
+
     const growthScore = calculateGrowthScore(stock.quarters, stock.revenueMom, stock.expectedGrowthRate);
     const grossMarginScore = calculateGrossMarginScore(stock.quarters);
     const operatingMarginScore = calculateOperatingMarginScore(stock.quarters);

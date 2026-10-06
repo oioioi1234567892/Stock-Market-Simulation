@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { CandleData, TradeRecord } from '../types/stock.ts';
-import { Maximize2, Minimize2, Crosshair } from 'lucide-react';
+import { Maximize2, Minimize2, Crosshair, AlertTriangle } from 'lucide-react';
 
 interface InteractiveChartProps {
   candles: CandleData[];
@@ -11,6 +11,7 @@ interface InteractiveChartProps {
   selectedRange?: string;
   onRangeChange?: (range: string) => void;
   onOpenRiskCalc?: () => void;
+  error?: string | null;
 }
 
 export const InteractiveChart: React.FC<InteractiveChartProps> = ({
@@ -22,6 +23,7 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
   selectedRange = '2y',
   onRangeChange,
   onOpenRiskCalc,
+  error,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -925,9 +927,19 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
         )}
 
         {candles.length === 0 && !isLoading && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center p-4 bg-slate-950/60">
-            <p className="text-slate-400 text-sm font-semibold mb-1">正在初始化 {stockName} ({symbol}) K 線數據</p>
-            <p className="text-xs text-slate-500">系統即將加載最新行情與指標...</p>
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center p-6 bg-slate-950/85 backdrop-blur-xs">
+            <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-amber-400 mb-3 shadow-md">
+              <AlertTriangle size={24} />
+            </div>
+            <h3 className="text-slate-100 text-base font-bold mb-1">未能獲得走勢</h3>
+            <p className="text-xs text-slate-400 max-w-sm leading-relaxed mb-3">
+              查無 {stockName} ({symbol}) 在市場上的歷史 K 線行情數據，可能此代號無交易走勢記錄或非有效台股上市櫃標的。
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-400 font-mono bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                市場代號: {symbol}
+              </span>
+            </div>
           </div>
         )}
 

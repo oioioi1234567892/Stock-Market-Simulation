@@ -46,16 +46,17 @@ export async function searchStocks(query: string): Promise<TaiwanStockInfo[]> {
  * Fetch real-time stock quote from Yahoo Finance
  */
 export async function fetchStockQuote(symbol: string): Promise<StockQuote> {
+  const resolved = resolveTaiwanSymbol(symbol);
   try {
-    const res = await fetch(`/api/stocks/${encodeURIComponent(symbol)}/quote`);
+    const res = await fetch(`/api/stocks/${encodeURIComponent(resolved.symbol)}/quote`);
     if (res.ok && isJsonResponse(res)) {
       return await res.json();
     }
-  } catch (err) {
-    console.warn(`fetchStockQuote network error for ${symbol}, using fallback:`, err);
+  } catch {
+    // client fallback
   }
 
-  return generateFallbackQuote(symbol);
+  return generateFallbackQuote(resolved.symbol);
 }
 
 export interface HistoryResponse {
@@ -65,6 +66,7 @@ export interface HistoryResponse {
   range: string;
   interval: string;
   candles: CandleData[];
+  error?: string;
 }
 
 /**
@@ -78,26 +80,35 @@ export async function fetchStockHistory(
   const resolved = resolveTaiwanSymbol(symbol);
   try {
     const res = await fetch(
-      `/api/stocks/${encodeURIComponent(symbol)}/history?range=${range}&interval=${interval}`
+      `/api/stocks/${encodeURIComponent(resolved.symbol)}/history?range=${range}&interval=${interval}`
     );
     if (res.ok && isJsonResponse(res)) {
       const data = await res.json();
-      if (data && Array.isArray(data.candles) && data.candles.length > 0) {
-        return data;
+      if (data && Array.isArray(data.candles)) {
+        return {
+          symbol: data.symbol || resolved.symbol,
+          name: data.name || resolved.name,
+          market: data.market || resolved.market,
+          range,
+          interval,
+          candles: data.candles,
+          error: data.candles.length === 0 ? (data.error || '未能獲得走勢') : undefined,
+        };
       }
     }
-  } catch (err) {
-    console.warn(`fetchStockHistory network error for ${symbol}, using client fallback:`, err);
+  } catch {
+    // client fallback
   }
 
-  const fallbackCandles = generateFallbackCandles(symbol, range);
+  // Do NOT fabricate fake candles for stocks that have no real market data
   return {
     symbol: resolved.symbol,
     name: resolved.name,
     market: resolved.market,
     range,
     interval,
-    candles: fallbackCandles,
+    candles: [],
+    error: '未能獲得走勢',
   };
 }
 
@@ -165,6 +176,56 @@ export async function fetchBatchCandles(symbols: string[]): Promise<Record<strin
   });
 
   return fallbackResults;
+}
+
+export interface BatchQuoteItem {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  volume?: number;
+  peRatio?: number;
+  timestamp: number;
+}
+
+/**
+ * Fetch high-speed batch real-time quotes directly from Yahoo Finance
+ */
+export async function fetchBatchQuotes(symbols: string[]): Promise<Record<string, BatchQuoteItem>> {
+  if (!symbols || symbols.length === 0) return {};
+  try {
+    const res = await fetch('/api/stocks/batch-quotes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols }),
+    });
+    if (res.ok && isJsonResponse(res)) {
+      const data = await res.json();
+      if (data && Object.keys(data).length > 0) {
+        return data;
+      }
+    }
+  } catch {
+    // client fallback
+  }
+
+  const results: Record<string, BatchQuoteItem> = {};
+  symbols.forEach(sym => {
+    const fb = generateFallbackQuote(sym);
+    results[sym] = {
+      symbol: fb.symbol,
+      name: fb.name,
+      price: fb.price,
+      change: fb.change,
+      changePercent: fb.changePercent,
+      timestamp: Date.now(),
+    };
+  });
+  return results;
 }
 
 // Zero-Database Watchlist API using client localStorage

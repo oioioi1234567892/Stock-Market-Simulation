@@ -40,76 +40,98 @@ const candleCache = new Map<string, CachedCandles>();
 /**
  * Fetch historical candles directly from Yahoo Finance with indicator calculations
  */
-async function fetchCandlesFromYahoo(targetSymbol: string, range = '2y', interval = '1d'): Promise<CandleData[]> {
-  const cacheKey = `${targetSymbol}:${range}:${interval}`;
-  const cached = candleCache.get(cacheKey);
-  // Cache for 5 minutes
-  if (cached && Date.now() - cached.timestamp < 300000) {
-    return cached.candles;
+async function fetchCandlesFromYahoo(rawSymbol: string, range = '2y', interval = '1d'): Promise<CandleData[]> {
+  const resolved = resolveTaiwanSymbol(rawSymbol);
+  const primarySymbol = resolved.symbol;
+
+  // Build candidate list with market suffix auto-fallback (.TW <-> .TWO)
+  const symbolsToTry = [primarySymbol];
+  if (primarySymbol.endsWith('.TW')) {
+    symbolsToTry.push(primarySymbol.replace(/\.TW$/, '.TWO'));
+  } else if (primarySymbol.endsWith('.TWO')) {
+    symbolsToTry.push(primarySymbol.replace(/\.TWO$/, '.TW'));
   }
 
-  try {
-    const now = new Date();
-    let startDate = new Date();
-    if (range === '1mo') startDate.setMonth(now.getMonth() - 1);
-    else if (range === '3mo') startDate.setMonth(now.getMonth() - 3);
-    else if (range === '6mo') startDate.setMonth(now.getMonth() - 6);
-    else if (range === '1y') startDate.setFullYear(now.getFullYear() - 1);
-    else if (range === '5y') startDate.setFullYear(now.getFullYear() - 5);
-    else startDate.setFullYear(now.getFullYear() - 2);
-
-    const period1Str = startDate.toISOString().split('T')[0];
-    const chartRes = await Promise.race([
-      yahooFinance.chart(targetSymbol, {
-        period1: period1Str,
-        interval: interval as any,
-      }),
-      new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Yahoo Finance timeout')), 6000)),
-    ]);
-
-    if (!chartRes || !chartRes.quotes || chartRes.quotes.length === 0) {
-      throw new Error(`找不到 ${targetSymbol} 的歷史數據`);
+  for (const targetSymbol of symbolsToTry) {
+    // Extra safety: Check if ticker is valid format (e.g. 2330.TW, 00631L.TW, 00708L.TW, 6412.TW, 3324.TWO)
+    if (!targetSymbol || /[^\x00-\x7F]/.test(targetSymbol) || !/^[0-9]{4,6}[A-Z]?\.TW(O)?$/i.test(targetSymbol)) {
+      continue;
     }
 
-    const rawCandles: CandleData[] = chartRes.quotes
-      .filter((q: any) => q.open !== null && q.close !== null && q.high !== null && q.low !== null)
-      .map((q: any) => {
-        const d = new Date(q.date);
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        const timeStr = `${y}-${m}-${day}`;
+    const cacheKey = `${targetSymbol}:${range}:${interval}`;
+    const cached = candleCache.get(cacheKey);
+    // Cache for 5 minutes
+    if (cached && Date.now() - cached.timestamp < 300000 && cached.candles.length > 0) {
+      return cached.candles;
+    }
 
-        return {
-          time: timeStr,
-          open: Number(q.open.toFixed(2)),
-          high: Number(q.high.toFixed(2)),
-          low: Number(q.low.toFixed(2)),
-          close: Number(q.close.toFixed(2)),
-          volume: Number(q.volume || 0),
-          adjClose: q.adjclose ? Number(q.adjclose.toFixed(2)) : undefined,
-        };
-      });
+    try {
+      const now = new Date();
+      let startDate = new Date();
+      if (range === '1mo') startDate.setMonth(now.getMonth() - 1);
+      else if (range === '3mo') startDate.setMonth(now.getMonth() - 3);
+      else if (range === '6mo') startDate.setMonth(now.getMonth() - 6);
+      else if (range === '1y') startDate.setFullYear(now.getFullYear() - 1);
+      else if (range === '5y') startDate.setFullYear(now.getFullYear() - 5);
+      else startDate.setFullYear(now.getFullYear() - 2);
 
-    const uniqueCandles: CandleData[] = [];
-    const seenDates = new Set<string>();
-    for (const c of rawCandles) {
-      if (!seenDates.has(c.time)) {
-        seenDates.add(c.time);
-        uniqueCandles.push(c);
+      const period1Str = startDate.toISOString().split('T')[0];
+      const chartRes = await Promise.race([
+        yahooFinance.chart(targetSymbol, {
+          period1: period1Str,
+          interval: interval as any,
+        }),
+        new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Yahoo Finance timeout')), 6000)),
+      ]);
+
+      if (!chartRes || !chartRes.quotes || chartRes.quotes.length === 0) {
+        continue;
       }
-    }
-    uniqueCandles.sort((a, b) => a.time.localeCompare(b.time));
-    const candlesWithIndicators = calculateIndicators(uniqueCandles);
 
-    candleCache.set(cacheKey, { timestamp: Date.now(), candles: candlesWithIndicators });
-    return candlesWithIndicators;
-  } catch (err: any) {
-    console.warn(`Yahoo historical chart query for ${targetSymbol} failed or timed out:`, err.message);
-    const fallback = generateFallbackCandles(targetSymbol, range);
-    candleCache.set(cacheKey, { timestamp: Date.now(), candles: fallback });
-    return fallback;
+      const rawCandles: CandleData[] = chartRes.quotes
+        .filter((q: any) => q.open !== null && q.close !== null && q.high !== null && q.low !== null)
+        .map((q: any) => {
+          const d = new Date(q.date);
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const timeStr = `${y}-${m}-${day}`;
+
+          return {
+            time: timeStr,
+            open: Number(q.open.toFixed(2)),
+            high: Number(q.high.toFixed(2)),
+            low: Number(q.low.toFixed(2)),
+            close: Number(q.close.toFixed(2)),
+            volume: Number(q.volume || 0),
+            adjClose: q.adjclose ? Number(q.adjclose.toFixed(2)) : undefined,
+          };
+        });
+
+      if (rawCandles.length === 0) {
+        continue;
+      }
+
+      const uniqueCandles: CandleData[] = [];
+      const seenDates = new Set<string>();
+      for (const c of rawCandles) {
+        if (!seenDates.has(c.time)) {
+          seenDates.add(c.time);
+          uniqueCandles.push(c);
+        }
+      }
+      uniqueCandles.sort((a, b) => a.time.localeCompare(b.time));
+      const candlesWithIndicators = calculateIndicators(uniqueCandles);
+
+      candleCache.set(cacheKey, { timestamp: Date.now(), candles: candlesWithIndicators });
+      return candlesWithIndicators;
+    } catch {
+      // Try next market candidate (e.g. .TWO if .TW failed)
+    }
   }
+
+  // Return empty array when Yahoo has no historical data so the app can display "未能獲得走勢"
+  return [];
 }
 
 // 1. Search Taiwan stocks
@@ -119,7 +141,7 @@ app.get('/api/stocks/search', (req: Request, res: Response) => {
     return res.json(POPULAR_TAIWAN_STOCKS.slice(0, 15));
   }
   const filtered = POPULAR_TAIWAN_STOCKS.filter(
-    s => s.code.includes(query) || s.name.toLowerCase().includes(query) || s.symbol.toLowerCase().includes(query)
+    s => s.code.toLowerCase().includes(query) || s.name.toLowerCase().includes(query) || s.symbol.toLowerCase().includes(query) || s.aliases?.some(a => a.toLowerCase().includes(query))
   );
 
   if (filtered.length === 0) {
@@ -142,20 +164,40 @@ app.get('/api/stocks/:symbol/quote', async (req: Request, res: Response) => {
   try {
     const symbolParam = req.params.symbol;
     const resolved = resolveTaiwanSymbol(symbolParam);
-    const targetSymbol = resolved.symbol;
+    const primarySymbol = resolved.symbol;
 
-    let quote: any = null;
-    try {
-      quote = await Promise.race([
-        yahooFinance.quote(targetSymbol),
-        new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Yahoo quote timeout')), 4000)),
-      ]);
-    } catch (err: any) {
-      console.warn(`Yahoo quote error for ${targetSymbol}:`, err.message);
+    const symbolsToTry = [primarySymbol];
+    if (primarySymbol.endsWith('.TW')) {
+      symbolsToTry.push(primarySymbol.replace(/\.TW$/, '.TWO'));
+    } else if (primarySymbol.endsWith('.TWO')) {
+      symbolsToTry.push(primarySymbol.replace(/\.TWO$/, '.TW'));
     }
 
-    if (!quote) {
-      const fallback = generateFallbackQuote(targetSymbol);
+    let quote: any = null;
+    let targetSymbol = primarySymbol;
+
+    for (const sym of symbolsToTry) {
+      if (!sym || /[^\x00-\x7F]/.test(sym) || !/^[0-9]{4,6}[A-Z]?\.TW(O)?$/i.test(sym)) {
+        continue;
+      }
+
+      try {
+        const q = await Promise.race([
+          yahooFinance.quote(sym),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Yahoo quote timeout')), 4000)),
+        ]);
+        if (q && q.regularMarketPrice != null) {
+          quote = q;
+          targetSymbol = sym;
+          break;
+        }
+      } catch {
+        // try next candidate
+      }
+    }
+
+    if (!quote || quote.regularMarketPrice == null) {
+      const fallback = generateFallbackQuote(primarySymbol);
       return res.json(fallback);
     }
 
@@ -164,9 +206,13 @@ app.get('/api/stocks/:symbol/quote', async (req: Request, res: Response) => {
     const change = quote.regularMarketChange ?? Number((price - prevClose).toFixed(2));
     const changePercent = quote.regularMarketChangePercent ?? (prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0);
 
+    const displayName = resolved.name && resolved.name !== targetSymbol && resolved.name !== targetSymbol.replace(/\.TW(O)?/i, '')
+      ? resolved.name
+      : (quote.shortName || quote.longName || resolved.name);
+
     res.json({
       symbol: targetSymbol,
-      name: resolved.name || quote.shortName || quote.symbol,
+      name: displayName,
       price: Number(price.toFixed(2)),
       change: Number(change.toFixed(2)),
       changePercent: Number(changePercent.toFixed(2)),
@@ -181,8 +227,7 @@ app.get('/api/stocks/:symbol/quote', async (req: Request, res: Response) => {
       week52Low: quote.fiftyTwoWeekLow,
       timestamp: Date.now(),
     });
-  } catch (error: any) {
-    console.warn('Quote error handled with fallback:', error);
+  } catch {
     const fallback = generateFallbackQuote(req.params.symbol);
     res.json(fallback);
   }
@@ -199,6 +244,18 @@ app.get('/api/stocks/:symbol/history', async (req: Request, res: Response) => {
 
     const candlesWithIndicators = await fetchCandlesFromYahoo(targetSymbol, range, interval);
 
+    if (!candlesWithIndicators || candlesWithIndicators.length === 0) {
+      return res.json({
+        symbol: targetSymbol,
+        name: resolved.name,
+        market: resolved.market,
+        range,
+        interval,
+        candles: [],
+        error: '未能獲得走勢',
+      });
+    }
+
     res.json({
       symbol: targetSymbol,
       name: resolved.name,
@@ -207,17 +264,16 @@ app.get('/api/stocks/:symbol/history', async (req: Request, res: Response) => {
       interval,
       candles: candlesWithIndicators,
     });
-  } catch (error: any) {
-    console.warn('Historical chart fetch handled with fallback:', error);
+  } catch {
     const resolved = resolveTaiwanSymbol(req.params.symbol);
-    const fallback = generateFallbackCandles(req.params.symbol, (req.query.range as string) || '2y');
     res.json({
       symbol: resolved.symbol,
       name: resolved.name,
       market: resolved.market,
       range: req.query.range || '2y',
       interval: req.query.interval || '1d',
-      candles: fallback,
+      candles: [],
+      error: '未能獲得走勢',
     });
   }
 });
@@ -257,8 +313,8 @@ app.post('/api/stocks/batch-candles', async (req: Request, res: Response) => {
               },
             };
           }
-        } catch (err: any) {
-          console.warn(`Batch fetch failed for ${rawSym}:`, err.message);
+        } catch {
+          // Gracefully continue with remaining symbols
         }
       })
     );
@@ -269,7 +325,99 @@ app.post('/api/stocks/batch-candles', async (req: Request, res: Response) => {
   }
 });
 
-// 5. Health Check
+// 5. Batch Quotes for Real-Time Valuation & Market Cards
+app.post('/api/stocks/batch-quotes', async (req: Request, res: Response) => {
+  try {
+    const symbols = req.body.symbols as string[];
+    if (!Array.isArray(symbols) || symbols.length === 0) {
+      return res.json({});
+    }
+
+    const resolvedMap = new Map<string, { symbol: string; name: string }>();
+    symbols.forEach(s => {
+      const r = resolveTaiwanSymbol(s);
+      resolvedMap.set(s, r);
+    });
+
+    const uniqueSymbols = Array.from(new Set(Array.from(resolvedMap.values()).map(r => r.symbol)));
+
+    let rawQuotes: any[] = [];
+    try {
+      rawQuotes = await Promise.race([
+        yahooFinance.quote(uniqueSymbols),
+        new Promise<any[]>((_, reject) => setTimeout(() => reject(new Error('Yahoo batch quote timeout')), 6000)),
+      ]);
+    } catch {
+      // Gracefully continue with fallback
+    }
+
+    const quoteMap = new Map<string, any>();
+    if (Array.isArray(rawQuotes)) {
+      rawQuotes.forEach(q => {
+        if (q && q.symbol) {
+          quoteMap.set(q.symbol, q);
+        }
+      });
+    }
+
+    const results: Record<string, {
+      symbol: string;
+      name: string;
+      price: number;
+      change: number;
+      changePercent: number;
+      open?: number;
+      high?: number;
+      low?: number;
+      volume?: number;
+      peRatio?: number;
+      timestamp: number;
+    }> = {};
+
+    symbols.forEach(rawSym => {
+      const resolved = resolvedMap.get(rawSym) || resolveTaiwanSymbol(rawSym);
+      const q = quoteMap.get(resolved.symbol);
+      if (q && q.regularMarketPrice != null) {
+        const price = Number(q.regularMarketPrice.toFixed(2));
+        const prevClose = q.regularMarketPreviousClose ?? price;
+        const change = q.regularMarketChange != null ? Number(q.regularMarketChange.toFixed(2)) : Number((price - prevClose).toFixed(2));
+        const changePercent = q.regularMarketChangePercent != null
+          ? Number(q.regularMarketChangePercent.toFixed(2))
+          : (prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0);
+
+        results[rawSym] = {
+          symbol: resolved.symbol,
+          name: resolved.name,
+          price,
+          change,
+          changePercent,
+          open: q.regularMarketOpen,
+          high: q.regularMarketDayHigh,
+          low: q.regularMarketDayLow,
+          volume: q.regularMarketVolume,
+          peRatio: q.trailingPE,
+          timestamp: Date.now(),
+        };
+      } else {
+        const fallback = generateFallbackQuote(resolved.symbol);
+        results[rawSym] = {
+          symbol: resolved.symbol,
+          name: resolved.name,
+          price: fallback.price,
+          change: fallback.change,
+          changePercent: fallback.changePercent,
+          timestamp: Date.now(),
+        };
+      }
+    });
+
+    res.json(results);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 6. Health Check
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });

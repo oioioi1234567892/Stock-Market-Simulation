@@ -29,7 +29,7 @@ export default function App() {
   // Loading & Error States
   const [isQuoteLoading, setIsQuoteLoading] = useState<boolean>(true);
   const [isCandlesLoading, setIsCandlesLoading] = useState<boolean>(true);
-  const [, setErrorMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Watchlist state for fast starring
   const [userWatchlist, setUserWatchlist] = useState<WatchlistItem[]>([]);
@@ -105,9 +105,12 @@ export default function App() {
       if (range === '2y') {
         setTwoYearCandles(data.candles);
       }
+      if (!data.candles || data.candles.length === 0) {
+        setErrorMsg('未能獲得走勢');
+      }
     } catch (e: any) {
       console.error('loadCandles error:', e);
-      setErrorMsg(e.message || '無法取得歷史 K 線行情');
+      setErrorMsg('未能獲得走勢');
     } finally {
       setIsCandlesLoading(false);
     }
@@ -281,6 +284,7 @@ export default function App() {
               isLoading={isCandlesLoading}
               selectedRange={currentRange}
               onRangeChange={setCurrentRange}
+              error={errorMsg}
             />
           </div>
 

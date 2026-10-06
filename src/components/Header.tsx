@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { POPULAR_TAIWAN_STOCKS, TaiwanStockInfo } from '../data/taiwanStocks.ts';
+import { POPULAR_TAIWAN_STOCKS, TaiwanStockInfo, resolveTaiwanSymbol } from '../data/taiwanStocks.ts';
 import { Search, TrendingUp, ShieldCheck, Calculator, Sparkles } from 'lucide-react';
 
 interface HeaderProps {
@@ -41,9 +41,13 @@ export const Header: React.FC<HeaderProps> = ({
 
   const marketStatus = getMarketStatus();
 
-  const filteredStocks = query
+  const lowerQuery = query.toLowerCase().trim();
+  const filteredStocks = lowerQuery
     ? POPULAR_TAIWAN_STOCKS.filter(
-        s => s.code.includes(query) || s.name.includes(query) || s.symbol.toLowerCase().includes(query.toLowerCase())
+        s => s.code.toLowerCase().includes(lowerQuery) ||
+             s.name.toLowerCase().includes(lowerQuery) ||
+             s.symbol.toLowerCase().includes(lowerQuery) ||
+             s.aliases?.some(a => a.toLowerCase().includes(lowerQuery))
       )
     : POPULAR_TAIWAN_STOCKS.slice(0, 10);
 
@@ -58,13 +62,16 @@ export const Header: React.FC<HeaderProps> = ({
     if (!query) return;
     const clean = query.trim().toUpperCase();
     const matched = POPULAR_TAIWAN_STOCKS.find(
-      s => s.code === clean || s.name === clean || s.symbol.toUpperCase() === clean
+      s => s.code.toUpperCase() === clean ||
+           s.name === query.trim() ||
+           s.symbol.toUpperCase() === clean ||
+           s.aliases?.some(a => a.toUpperCase() === clean || a === query.trim())
     );
     if (matched) {
       onSelectStock(matched.symbol, matched.name);
     } else {
-      const symbol = clean.includes('.') ? clean : `${clean}.TW`;
-      onSelectStock(symbol, clean);
+      const resolved = resolveTaiwanSymbol(query);
+      onSelectStock(resolved.symbol, resolved.name);
     }
     setSearchOpen(false);
     setQuery('');

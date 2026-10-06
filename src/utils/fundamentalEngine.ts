@@ -374,7 +374,7 @@ export const TAIWAN_TECH_STOCKS_DATA: RawTechStockData[] = [
     ],
   },
   {
-    symbol: '3324.TW',
+    symbol: '3324.TWO',
     name: '雙鴻',
     category: '散熱',
     basePrice: 660,
