@@ -1,15 +1,14 @@
 import React from 'react';
-import { CandlestickChart, PlayCircle, Bookmark, ShieldAlert, Sparkles } from 'lucide-react';
+import { CandlestickChart, PlayCircle, Bookmark, Sparkles } from 'lucide-react';
 
 export type ActiveMobileTab = 'chart' | 'backtest' | 'fundamentals' | 'watchlist';
 
 interface MobileNavProps {
   activeTab: ActiveMobileTab;
   onChangeTab: (tab: ActiveMobileTab) => void;
-  onOpenRiskCalc?: () => void;
 }
 
-export const MobileNav: React.FC<MobileNavProps> = ({ activeTab, onChangeTab, onOpenRiskCalc }) => {
+export const MobileNav: React.FC<MobileNavProps> = ({ activeTab, onChangeTab }) => {
   return (
     <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 border-t border-slate-800/90 backdrop-blur-xl px-1.5 py-1 flex items-center justify-around safe-area-bottom shadow-2xl">
       <button
@@ -54,16 +53,6 @@ export const MobileNav: React.FC<MobileNavProps> = ({ activeTab, onChangeTab, on
         <Bookmark size={18} className={activeTab === 'watchlist' ? 'stroke-[2.5]' : ''} />
         <span className="text-[10px] mt-0.5 tracking-tight">自選池</span>
       </button>
-
-      {onOpenRiskCalc && (
-        <button
-          onClick={onOpenRiskCalc}
-          className="flex-1 flex flex-col items-center py-1.5 text-amber-400 hover:text-amber-300 transition-all"
-        >
-          <ShieldAlert size={18} />
-          <span className="text-[10px] mt-0.5 tracking-tight font-medium">風控算力</span>
-        </button>
-      )}
     </nav>
   );
 };

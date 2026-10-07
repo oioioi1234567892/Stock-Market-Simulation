@@ -9,7 +9,11 @@ import {
   runTechFundamentalScan,
   ValuationStance,
 } from '../utils/fundamentalAnalysisEngine.ts';
-import { fetchBatchQuotes, BatchQuoteItem } from '../services/api.ts';
+import { fetchBatchQuotes, BatchQuoteItem, syncTechMarketFinancials } from '../services/api.ts';
+import {
+  MarketFinancialProgress,
+  calculateMarketFinancialProgress,
+} from '../utils/marketFinancialCalendar.ts';
 import {
   Cpu,
   Layers,
@@ -19,6 +23,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   ChevronRight,
+  ChevronDown,
   Info,
   DollarSign,
   BarChart3,
@@ -97,57 +102,75 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
   // Detail Modal State
   const [detailStock, setDetailStock] = useState<AnalyzedTechStock | null>(null);
 
+  // Market Financial Reporting Calendar & Dynamic 8-Quarter Progress (後台自動校準)
+  const [marketProgress, setMarketProgress] = useState<MarketFinancialProgress>(() => calculateMarketFinancialProgress());
+  const [isSyncingFinancials, setIsSyncingFinancials] = useState<boolean>(true);
+
   // Live Yahoo Finance Quotes State
   const [liveQuotes, setLiveQuotes] = useState<Record<string, BatchQuoteItem>>({});
   const [isFetchingLive, setIsFetchingLive] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  // Full analyzed results
-  const [analyzedList, setAnalyzedList] = useState<AnalyzedTechStock[]>(() => runTechFundamentalScan());
+  // Full analyzed results (Initialized with current market progress)
+  const [analyzedList, setAnalyzedList] = useState<AnalyzedTechStock[]>(() => runTechFundamentalScan(undefined, calculateMarketFinancialProgress()));
 
-  // Automatic real-time quote synchronization from Yahoo Finance on mount & polling
+  // Automatic real-time financial calendar & quote synchronization on mount & polling
   useEffect(() => {
     let isMounted = true;
-    const fetchLatestPrices = async () => {
+    const autoSyncMarketAndQuotes = async () => {
       try {
         setIsFetchingLive(true);
-        const symbols = TAIWAN_TECH_STOCKS_DATABASE.map(s => s.symbol);
-        const quotes = await fetchBatchQuotes(symbols);
-        if (isMounted && quotes && Object.keys(quotes).length > 0) {
-          setLiveQuotes(quotes);
-          setLastUpdated(new Date());
-          setAnalyzedList(runTechFundamentalScan(quotes));
+        setIsSyncingFinancials(true);
+        const res = await syncTechMarketFinancials();
+        if (isMounted) {
+          if (res.progress) {
+            setMarketProgress(res.progress);
+          }
+          if (res.quotes && Object.keys(res.quotes).length > 0) {
+            setLiveQuotes(res.quotes);
+          }
+          setLastUpdated(new Date(res.timestamp || Date.now()));
+          setAnalyzedList(runTechFundamentalScan(res.quotes, res.progress));
         }
       } catch (err) {
-        console.warn('Real-time quotes synchronization error:', err);
+        console.warn('Auto-sync market financials & quotes error:', err);
       } finally {
-        if (isMounted) setIsFetchingLive(false);
+        if (isMounted) {
+          setIsFetchingLive(false);
+          setIsSyncingFinancials(false);
+        }
       }
     };
 
-    fetchLatestPrices();
+    autoSyncMarketAndQuotes();
     // Auto-refresh quotes every 30 seconds
-    const intervalId = setInterval(fetchLatestPrices, 30000);
+    const intervalId = setInterval(autoSyncMarketAndQuotes, 30000);
     return () => {
       isMounted = false;
       clearInterval(intervalId);
     };
   }, []);
 
-  // Trigger Scan Animation & Refresh Yahoo Finance Live Data
+  // Trigger Scan Animation & Refresh Yahoo Finance Live Data & Market Financial Progress
   const handleTriggerScan = async () => {
     setIsScanning(true);
     setScanStep(1);
     setScanProgress(15);
 
     let freshQuotes = liveQuotes;
+    let freshProgress = marketProgress;
     try {
-      const symbols = TAIWAN_TECH_STOCKS_DATABASE.map(s => s.symbol);
-      const quotes = await fetchBatchQuotes(symbols);
-      if (quotes && Object.keys(quotes).length > 0) {
-        freshQuotes = quotes;
-        setLiveQuotes(quotes);
-        setLastUpdated(new Date());
+      const res = await syncTechMarketFinancials();
+      if (res) {
+        if (res.progress) {
+          freshProgress = res.progress;
+          setMarketProgress(res.progress);
+        }
+        if (res.quotes && Object.keys(res.quotes).length > 0) {
+          freshQuotes = res.quotes;
+          setLiveQuotes(res.quotes);
+        }
+        setLastUpdated(new Date(res.timestamp || Date.now()));
       }
     } catch (e) {
       console.warn('Manual scan fetch quotes error:', e);
@@ -166,7 +189,7 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
     setTimeout(() => {
       setScanStep(4);
       setScanProgress(100);
-      const results = runTechFundamentalScan(freshQuotes);
+      const results = runTechFundamentalScan(freshQuotes, freshProgress);
       setAnalyzedList(results);
       setIsScanning(false);
       setHasScanned(true);
@@ -303,7 +326,7 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/40 uppercase tracking-wider flex items-center gap-1">
                 <Sparkles size={11} />
-                基本面 8 季財報深度量化掃描
+                基本面 8 季財報深度量化掃描 ({marketProgress.currentQuarter} 最新校準)
               </span>
               <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
@@ -313,7 +336,7 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                     · 最新報價 {lastUpdated.toLocaleTimeString('zh-TW', { hour12: false })}
                   </span>
                 )}
-                {isFetchingLive && (
+                {(isFetchingLive || isSyncingFinancials) && (
                   <span className="text-blue-400 text-[10px] flex items-center gap-1">
                     <RefreshCw size={10} className="animate-spin" /> 更新中...
                   </span>
@@ -1079,11 +1102,17 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
 
             {/* 8-Quarter Financials Table */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-bold text-slate-200 text-xs sm:text-sm flex items-center gap-1.5">
-                  <FileSpreadsheet size={15} className="text-emerald-400" />
-                  <span>最近 8 個季度財報明細表 (連續追蹤)</span>
-                </h4>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 mb-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-bold text-slate-200 text-xs sm:text-sm flex items-center gap-1.5">
+                    <FileSpreadsheet size={15} className="text-emerald-400" />
+                    <span>最近 8 個季度財報明細表 (連續追蹤至 2026 最新季度)</span>
+                  </h4>
+                  <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    2026 最新季報已同步
+                  </span>
+                </div>
                 <span className="text-[11px] text-slate-500 font-mono">單位: 新台幣 / 億元</span>
               </div>
 

@@ -1,6 +1,7 @@
 import { StockQuote, CandleData, WatchlistItem } from '../types/stock.ts';
 import { TaiwanStockInfo, POPULAR_TAIWAN_STOCKS, resolveTaiwanSymbol } from '../data/taiwanStocks.ts';
 import { generateFallbackCandles, generateFallbackQuote } from './clientStockFallback.ts';
+import { MarketFinancialProgress, calculateMarketFinancialProgress } from '../utils/marketFinancialCalendar.ts';
 
 function isJsonResponse(res: Response): boolean {
   const contentType = res.headers.get('content-type') || '';
@@ -226,6 +227,42 @@ export async function fetchBatchQuotes(symbols: string[]): Promise<Record<string
     };
   });
   return results;
+}
+
+export interface SyncTechFinancialsResponse {
+  progress: MarketFinancialProgress;
+  quotes: Record<string, BatchQuoteItem>;
+  timestamp: number;
+}
+
+/**
+ * Automatically fetch the latest market financial reporting stage progress
+ * and synchronizes live quotes for all tech stocks.
+ */
+export async function syncTechMarketFinancials(): Promise<SyncTechFinancialsResponse> {
+  try {
+    const res = await fetch('/api/stocks/financials/tech-summary');
+    if (res.ok && isJsonResponse(res)) {
+      const data = await res.json();
+      if (data && data.progress && data.quotes) {
+        return {
+          progress: data.progress,
+          quotes: data.quotes,
+          timestamp: data.timestamp || Date.now(),
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('syncTechMarketFinancials network error, falling back to local calculated progress:', err);
+  }
+
+  // Local calculation fallback
+  const progress = calculateMarketFinancialProgress(new Date());
+  return {
+    progress,
+    quotes: {},
+    timestamp: Date.now(),
+  };
 }
 
 // Zero-Database Watchlist API using client localStorage

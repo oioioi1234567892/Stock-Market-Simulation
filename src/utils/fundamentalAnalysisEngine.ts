@@ -4,6 +4,11 @@ import {
   TechSector,
   TAIWAN_TECH_STOCKS_DATABASE,
 } from '../data/techFinancialsData.ts';
+import {
+  calculateMarketFinancialProgress,
+  alignStockQuartersToMarketProgress,
+  MarketFinancialProgress,
+} from './marketFinancialCalendar.ts';
 
 export interface FundamentalScores {
   growthScore: number; // 成長性評分 (0-100)
@@ -363,20 +368,26 @@ export function generateTraderInsights(stock: TechStockFinancialData, scores: Fu
   };
 }
 
-// 11. 全市場掃描、評分、同業對比與 Top 20 篩選 (支援 Yahoo Finance 即時報價注入)
+// 11. 全市場掃描、評分、同業對比與 Top 20 篩選 (支援動態財報進度對齊與即時報價注入)
 export function runTechFundamentalScan(
-  priceOverrides?: Record<string, { price: number; change?: number; changePercent?: number }>
+  priceOverrides?: Record<string, { price: number; change?: number; changePercent?: number }>,
+  customProgress?: MarketFinancialProgress
 ): AnalyzedTechStock[] {
+  const marketProgress = customProgress || calculateMarketFinancialProgress();
+
   // Step 1: Calculate raw scores and dynamic valuations for all candidate stocks
   const analyzedList: AnalyzedTechStock[] = TAIWAN_TECH_STOCKS_DATABASE.map((rawStock: TechStockFinancialData) => {
-    const live = priceOverrides?.[rawStock.symbol] || priceOverrides?.[rawStock.code];
-    const currentPrice = live?.price != null && live.price > 0 ? live.price : rawStock.currentPrice;
-    const change = live?.change != null ? live.change : rawStock.change;
-    const changePercent = live?.changePercent != null ? live.changePercent : rawStock.changePercent;
-    const currentPe = rawStock.ttmEps > 0 ? Number((currentPrice / rawStock.ttmEps).toFixed(1)) : rawStock.currentPe;
+    // Dynamically align the stock quarters to current market financial disclosure progress
+    const alignedStock = alignStockQuartersToMarketProgress(rawStock, marketProgress);
+
+    const live = priceOverrides?.[alignedStock.symbol] || priceOverrides?.[alignedStock.code];
+    const currentPrice = live?.price != null && live.price > 0 ? live.price : alignedStock.currentPrice;
+    const change = live?.change != null ? live.change : alignedStock.change;
+    const changePercent = live?.changePercent != null ? live.changePercent : alignedStock.changePercent;
+    const currentPe = alignedStock.ttmEps > 0 ? Number((currentPrice / alignedStock.ttmEps).toFixed(1)) : alignedStock.currentPe;
 
     const stock: TechStockFinancialData = {
-      ...rawStock,
+      ...alignedStock,
       currentPrice,
       change,
       changePercent,

@@ -208,7 +208,7 @@ export type TechCategory =
   | 'ABF載板';
 
 export interface QuarterlyFinancialReport {
-  quarter: string; // e.g. '2024Q3', '2024Q2'
+  quarter: string; // e.g. '2026Q3', '2026Q2'
   revenue: number; // 營業收入 (億新台幣)
   revenueYoY: number; // 營收年增率 (%)
   revenueQoQ: number; // 營收季增率 (%)

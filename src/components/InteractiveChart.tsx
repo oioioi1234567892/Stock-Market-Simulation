@@ -10,7 +10,6 @@ interface InteractiveChartProps {
   isLoading?: boolean;
   selectedRange?: string;
   onRangeChange?: (range: string) => void;
-  onOpenRiskCalc?: () => void;
   error?: string | null;
 }
 
@@ -22,7 +21,6 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
   isLoading = false,
   selectedRange = '2y',
   onRangeChange,
-  onOpenRiskCalc,
   error,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -39,33 +37,56 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [dimensions, setDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
-  // Responsive resize tracking
+  // Reset zoom & pan when symbol changes to ensure newly searched stock is centered immediately
+  useEffect(() => {
+    setOffsetRight(0);
+    setHoverIndex(null);
+  }, [symbol]);
+
+  // Responsive resize tracking - monitors container visibility, tab switching & symbol transitions
   useEffect(() => {
     const handleResize = () => {
-      if (canvasRef.current) {
-        const rect = canvasRef.current.getBoundingClientRect();
+      const targetEl = canvasRef.current || containerRef.current;
+      if (targetEl) {
+        const rect = targetEl.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) {
-          setDimensions({ width: Math.round(rect.width), height: Math.round(rect.height) });
+          setDimensions(prev => {
+            const w = Math.round(rect.width);
+            const h = Math.round(rect.height);
+            if (prev.width === w && prev.height === h) return prev;
+            return { width: w, height: h };
+          });
         }
       }
     };
 
     handleResize();
 
+    // Multiple staggered frames (0ms, 60ms, 150ms, 350ms) to reliably catch mobile CSS display transitions
+    const rafId = requestAnimationFrame(handleResize);
+    const timer1 = setTimeout(handleResize, 60);
+    const timer2 = setTimeout(handleResize, 150);
+    const timer3 = setTimeout(handleResize, 350);
+
     let ro: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+    if (typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(() => {
         handleResize();
       });
-      ro.observe(containerRef.current);
+      if (containerRef.current) ro.observe(containerRef.current);
+      if (canvasRef.current) ro.observe(canvasRef.current);
     }
 
     window.addEventListener('resize', handleResize);
     return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
       if (ro) ro.disconnect();
       window.removeEventListener('resize', handleResize);
     };
-  }, [isFullscreen]);
+  }, [isFullscreen, symbol, candles.length, isLoading]);
 
   // Zoom & Pan state: default show ~75 daily candles for comfortable viewing on 2-year dataset
   const [visibleCount, setVisibleCount] = useState<number>(75);
@@ -118,6 +139,18 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
     const rect = canvas.getBoundingClientRect();
     const width = rect.width;
     const height = rect.height;
+
+    if (width <= 0 || height <= 0) {
+      const raf = requestAnimationFrame(() => {
+        if (canvasRef.current) {
+          const r = canvasRef.current.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) {
+            setDimensions({ width: Math.round(r.width), height: Math.round(r.height) });
+          }
+        }
+      });
+      return () => cancelAnimationFrame(raf);
+    }
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
@@ -661,7 +694,7 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
       ctx.fillStyle = '#e2e8f0';
       ctx.fillText(c.time.slice(5), Math.max(4, activeX - 16), height - 4);
     }
-  }, [visibleData, showMAs, showBollinger, showTradeMarkers, trades, hoverIndex, dimensions]);
+  }, [visibleData, showMAs, showBollinger, showTradeMarkers, trades, hoverIndex, dimensions, symbol]);
 
   // Pointer interactions for dragging / panning
   const handlePointerDown = (e: React.PointerEvent) => {

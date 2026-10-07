@@ -9,7 +9,6 @@ import { StrategyBacktester } from './components/StrategyBacktester.tsx';
 import { WatchlistManager } from './components/WatchlistManager.tsx';
 import { TechFundamentalScanner } from './components/TechFundamentalScanner.tsx';
 import { PythonScriptModal } from './components/PythonScriptModal.tsx';
-import { RiskCalculatorModal } from './components/RiskCalculatorModal.tsx';
 import { MobileNav, ActiveMobileTab } from './components/MobileNav.tsx';
 import { RefreshCw, TrendingUp, Sparkles, LineChart } from 'lucide-react';
 
@@ -35,7 +34,6 @@ export default function App() {
   const [userWatchlist, setUserWatchlist] = useState<WatchlistItem[]>([]);
 
   // Modals & Active Strategy
-  const [isRiskCalcOpen, setIsRiskCalcOpen] = useState<boolean>(false);
   const [isPythonModalOpen, setIsPythonModalOpen] = useState<boolean>(false);
   const [activeStrategy, setActiveStrategy] = useState<StrategyConfig>(DEFAULT_STRATEGY);
 
@@ -145,6 +143,12 @@ export default function App() {
     setStockName(name);
     setDesktopActiveView('trading');
     setActiveMobileTab('chart');
+    loadQuote(symbol);
+    loadCandles(symbol, currentRange, currentInterval);
+    if (typeof window !== 'undefined') {
+      // On mobile, scroll to top/chart smoothly so user sees the newly loaded stock chart immediately
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   // Compute active stock strategy signal & quantitative metrics (winRate, expectancy, MDD)
@@ -160,7 +164,6 @@ export default function App() {
       <Header
         currentSymbol={currentSymbol}
         onSelectStock={handleSelectStock}
-        onOpenRiskCalc={() => setIsRiskCalcOpen(true)}
         activeView={desktopActiveView}
         onSwitchView={(v) => {
           setDesktopActiveView(v);
@@ -275,7 +278,7 @@ export default function App() {
           </div>
 
           {/* Desktop & Mobile Chart Section */}
-          <div className={`${activeMobileTab === 'chart' || desktopActiveView === 'trading' ? 'block' : 'hidden sm:block'}`}>
+          <div className={`${activeMobileTab === 'chart' ? 'block' : 'hidden sm:block'}`}>
             <InteractiveChart
               candles={candles}
               symbol={currentSymbol}
@@ -289,7 +292,7 @@ export default function App() {
           </div>
 
           {/* Strategy Backtest Section */}
-          <div className={`${activeMobileTab === 'backtest' || desktopActiveView === 'trading' ? 'block' : 'hidden sm:block'}`}>
+          <div className={`${activeMobileTab === 'backtest' ? 'block' : 'hidden sm:block'}`}>
             <StrategyBacktester
               candles={twoYearCandles.length > 0 ? twoYearCandles : candles}
               symbol={currentSymbol}
@@ -304,7 +307,7 @@ export default function App() {
           </div>
 
           {/* Watchlist & History */}
-          <div className={`${activeMobileTab === 'watchlist' || desktopActiveView === 'trading' ? 'block' : 'hidden sm:block'}`}>
+          <div className={`${activeMobileTab === 'watchlist' ? 'block' : 'hidden sm:block'}`}>
             <WatchlistManager
               currentSymbol={currentSymbol}
               onSelectStock={handleSelectStock}
@@ -322,7 +325,6 @@ export default function App() {
           if (tab === 'fundamentals') setDesktopActiveView('fundamentals');
           else setDesktopActiveView('trading');
         }}
-        onOpenRiskCalc={() => setIsRiskCalcOpen(true)}
       />
 
       {/* Python Script Export Modal */}
@@ -332,15 +334,6 @@ export default function App() {
         symbol={currentSymbol}
         stockName={stockName}
         strategy={activeStrategy}
-      />
-
-      {/* Top Trader Risk Management & Position Sizing Calculator Modal */}
-      <RiskCalculatorModal
-        isOpen={isRiskCalcOpen}
-        onClose={() => setIsRiskCalcOpen(false)}
-        symbol={currentSymbol}
-        stockName={stockName}
-        currentPrice={quote?.price || 100}
       />
     </div>
   );

@@ -7,7 +7,6 @@ interface StockSummaryProps {
   isLoading?: boolean;
   isInWatchlist?: boolean;
   onToggleWatchlist?: () => void;
-  onOpenRiskCalc?: () => void;
   strategySignal?: StockStrategySignal;
 }
 

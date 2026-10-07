@@ -5,6 +5,8 @@ import { POPULAR_TAIWAN_STOCKS, resolveTaiwanSymbol } from '../data/taiwanStocks
 import { calculateIndicators } from '../utils/indicators.ts';
 import { CandleData } from '../types/stock.ts';
 import { generateFallbackCandles, generateFallbackQuote } from '../services/clientStockFallback.ts';
+import { calculateMarketFinancialProgress } from '../utils/marketFinancialCalendar.ts';
+import { TAIWAN_TECH_STOCKS_DATABASE } from '../data/techFinancialsData.ts';
 
 dotenv.config();
 
@@ -417,7 +419,80 @@ app.post('/api/stocks/batch-quotes', async (req: Request, res: Response) => {
   }
 });
 
-// 6. Health Check
+// 6. Real-Time Tech Stocks Financial Summary & Market Reporting Calendar Sync
+app.get('/api/stocks/financials/tech-summary', async (_req: Request, res: Response) => {
+  try {
+    const progress = calculateMarketFinancialProgress(new Date());
+    const symbols = TAIWAN_TECH_STOCKS_DATABASE.map(s => s.symbol);
+
+    const resolvedMap = new Map<string, { symbol: string; name: string }>();
+    symbols.forEach(s => {
+      resolvedMap.set(s, resolveTaiwanSymbol(s));
+    });
+
+    const uniqueSymbols = Array.from(new Set(Array.from(resolvedMap.values()).map(r => r.symbol)));
+    let rawQuotes: any[] = [];
+    try {
+      rawQuotes = await Promise.race([
+        yahooFinance.quote(uniqueSymbols),
+        new Promise<any[]>((_, reject) => setTimeout(() => reject(new Error('Yahoo batch quote timeout')), 5000)),
+      ]);
+    } catch {
+      // fallback
+    }
+
+    const quoteMap = new Map<string, any>();
+    if (Array.isArray(rawQuotes)) {
+      rawQuotes.forEach(q => {
+        if (q && q.symbol) quoteMap.set(q.symbol, q);
+      });
+    }
+
+    const quotes: Record<string, any> = {};
+    symbols.forEach(rawSym => {
+      const resolved = resolvedMap.get(rawSym) || resolveTaiwanSymbol(rawSym);
+      const q = quoteMap.get(resolved.symbol);
+      if (q && q.regularMarketPrice != null) {
+        const price = Number(q.regularMarketPrice.toFixed(2));
+        const prevClose = q.regularMarketPreviousClose ?? price;
+        const change = q.regularMarketChange != null ? Number(q.regularMarketChange.toFixed(2)) : Number((price - prevClose).toFixed(2));
+        const changePercent = q.regularMarketChangePercent != null
+          ? Number(q.regularMarketChangePercent.toFixed(2))
+          : (prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0);
+        quotes[rawSym] = {
+          symbol: resolved.symbol,
+          name: resolved.name,
+          price,
+          change,
+          changePercent,
+          peRatio: q.trailingPE,
+          timestamp: Date.now(),
+        };
+      } else {
+        const fallback = generateFallbackQuote(resolved.symbol);
+        quotes[rawSym] = {
+          symbol: resolved.symbol,
+          name: resolved.name,
+          price: fallback.price,
+          change: fallback.change,
+          changePercent: fallback.changePercent,
+          timestamp: Date.now(),
+        };
+      }
+    });
+
+    res.json({
+      progress,
+      quotes,
+      timestamp: Date.now(),
+      status: 'synchronized',
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 7. Health Check
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
