@@ -7,13 +7,23 @@ import {
 import {
   AnalyzedTechStock,
   runTechFundamentalScan,
-  ValuationStance,
 } from '../utils/fundamentalAnalysisEngine.ts';
-import { fetchBatchQuotes, BatchQuoteItem, syncTechMarketFinancials } from '../services/api.ts';
+import {
+  fetchBatchQuotes,
+  BatchQuoteItem,
+  syncTechMarketFinancials,
+  fetchAiStockAnalysis,
+  fetchAiBatchAnalysis,
+} from '../services/api.ts';
 import {
   MarketFinancialProgress,
   calculateMarketFinancialProgress,
 } from '../utils/marketFinancialCalendar.ts';
+import {
+  AiStockFinancialAnalysis,
+  AiCompetitivenessRating,
+} from '../types/aiFinancialAnalysis.ts';
+import { AiFinancialReportModal } from './AiFinancialReportModal.tsx';
 import {
   Cpu,
   Layers,
@@ -23,7 +33,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   ChevronRight,
-  ChevronDown,
   Info,
   DollarSign,
   BarChart3,
@@ -36,12 +45,15 @@ import {
   SlidersHorizontal,
   Flame,
   LineChart,
-  Calculator,
   RefreshCw,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Smartphone,
+  Award,
+  Zap,
+  ShieldCheck,
+  ShieldAlert,
+  HelpCircle,
 } from 'lucide-react';
 
 interface TechFundamentalScannerProps {
@@ -52,34 +64,33 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
   onSelectStockForChart,
 }) => {
   // Scan State
-  const [hasScanned, setHasScanned] = useState<boolean>(true); // Preloaded with default verified scan
+  const [hasScanned, setHasScanned] = useState<boolean>(true);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanStep, setScanStep] = useState<number>(4);
   const [scanProgress, setScanProgress] = useState<number>(100);
 
   // Filter States
   const [selectedSector, setSelectedSector] = useState<TechSector | 'ALL'>('ALL');
-  const [selectedStance, setSelectedStance] = useState<ValuationStance | 'ALL'>('ALL');
+  const [selectedCompetitiveness, setSelectedCompetitiveness] = useState<AiCompetitivenessRating | 'ALL'>('ALL');
   const [minGrowthFilter, setMinGrowthFilter] = useState<boolean>(false);
 
-  // Table Sorting and Metric View Mode States (取消搜尋與卡片，以專業表格呈現)
+  // Table Sorting and Metric View Mode States
   const [sortField, setSortField] = useState<
     | 'rank'
     | 'currentPrice'
     | 'changePercent'
-    | 'valuationStance'
-    | 'cheapPrice'
-    | 'fairPrice'
-    | 'expensivePrice'
-    | 'upsidePotential'
+    | 'competitivenessScore'
+    | 'profitabilityScore'
+    | 'assetReturnScore'
+    | 'revenueGrowthScore'
+    | 'debtHealthScore'
     | 'grossMargin'
     | 'roe'
     | 'roic'
     | 'expectedGrowthRate'
-    | 'growthScore'
   >('rank');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [metricGroup, setMetricGroup] = useState<'ALL' | 'VALUATION' | 'PROFITABILITY'>('ALL');
+  const [metricGroup, setMetricGroup] = useState<'ALL' | 'PROFITABILITY' | 'GROWTH_DEBT'>('ALL');
 
   const handleSort = (field: typeof sortField) => {
     if (sortField === field) {
@@ -87,20 +98,24 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
     } else {
       setSortField(field);
       const defaultDesc = [
-        'upsidePotential',
+        'competitivenessScore',
+        'profitabilityScore',
+        'assetReturnScore',
+        'revenueGrowthScore',
+        'debtHealthScore',
         'grossMargin',
         'roe',
         'roic',
         'expectedGrowthRate',
-        'growthScore',
         'changePercent',
       ].includes(field);
       setSortOrder(defaultDesc ? 'desc' : 'asc');
     }
   };
 
-  // Detail Modal State
+  // AI Deep Report Modal State
   const [detailStock, setDetailStock] = useState<AnalyzedTechStock | null>(null);
+  const [isRefreshingDetail, setIsRefreshingDetail] = useState<boolean>(false);
 
   // Market Financial Reporting Calendar & Dynamic 8-Quarter Progress (後台自動校準)
   const [marketProgress, setMarketProgress] = useState<MarketFinancialProgress>(() => calculateMarketFinancialProgress());
@@ -111,29 +126,43 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
   const [isFetchingLive, setIsFetchingLive] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  // Full analyzed results (Initialized with current market progress)
-  const [analyzedList, setAnalyzedList] = useState<AnalyzedTechStock[]>(() => runTechFundamentalScan(undefined, calculateMarketFinancialProgress()));
+  // AI Batch Analysis Cache State
+  const [aiBatchMap, setAiBatchMap] = useState<Record<string, AiStockFinancialAnalysis>>({});
 
-  // Automatic real-time financial calendar & quote synchronization on mount & polling
+  // Full analyzed results (Initialized with current market progress)
+  const [analyzedList, setAnalyzedList] = useState<AnalyzedTechStock[]>(() =>
+    runTechFundamentalScan(undefined, calculateMarketFinancialProgress())
+  );
+
+  // Automatic real-time financial calendar, quote & AI batch analysis on mount & polling
   useEffect(() => {
     let isMounted = true;
-    const autoSyncMarketAndQuotes = async () => {
+
+    const autoSync = async () => {
       try {
         setIsFetchingLive(true);
         setIsSyncingFinancials(true);
-        const res = await syncTechMarketFinancials();
+
+        const [marketRes, aiBatch] = await Promise.all([
+          syncTechMarketFinancials(),
+          fetchAiBatchAnalysis(),
+        ]);
+
         if (isMounted) {
-          if (res.progress) {
-            setMarketProgress(res.progress);
+          if (marketRes.progress) {
+            setMarketProgress(marketRes.progress);
           }
-          if (res.quotes && Object.keys(res.quotes).length > 0) {
-            setLiveQuotes(res.quotes);
+          if (marketRes.quotes && Object.keys(marketRes.quotes).length > 0) {
+            setLiveQuotes(marketRes.quotes);
           }
-          setLastUpdated(new Date(res.timestamp || Date.now()));
-          setAnalyzedList(runTechFundamentalScan(res.quotes, res.progress));
+          if (aiBatch && Object.keys(aiBatch).length > 0) {
+            setAiBatchMap(aiBatch);
+          }
+          setLastUpdated(new Date(marketRes.timestamp || Date.now()));
+          setAnalyzedList(runTechFundamentalScan(marketRes.quotes, marketRes.progress, aiBatch));
         }
       } catch (err) {
-        console.warn('Auto-sync market financials & quotes error:', err);
+        console.warn('Auto-sync market financials & AI analysis error:', err);
       } finally {
         if (isMounted) {
           setIsFetchingLive(false);
@@ -142,16 +171,16 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
       }
     };
 
-    autoSyncMarketAndQuotes();
+    autoSync();
     // Auto-refresh quotes every 30 seconds
-    const intervalId = setInterval(autoSyncMarketAndQuotes, 30000);
+    const intervalId = setInterval(autoSync, 30000);
     return () => {
       isMounted = false;
       clearInterval(intervalId);
     };
   }, []);
 
-  // Trigger Scan Animation & Refresh Yahoo Finance Live Data & Market Financial Progress
+  // Trigger AI Agent Scan Animation & Refresh Live Data & AI Analysis
   const handleTriggerScan = async () => {
     setIsScanning(true);
     setScanStep(1);
@@ -159,59 +188,95 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
 
     let freshQuotes = liveQuotes;
     let freshProgress = marketProgress;
+    let freshAiBatch = aiBatchMap;
+
     try {
-      const res = await syncTechMarketFinancials();
-      if (res) {
-        if (res.progress) {
-          freshProgress = res.progress;
-          setMarketProgress(res.progress);
+      const [marketRes, aiBatch] = await Promise.all([
+        syncTechMarketFinancials(),
+        fetchAiBatchAnalysis(),
+      ]);
+
+      if (marketRes) {
+        if (marketRes.progress) {
+          freshProgress = marketRes.progress;
+          setMarketProgress(marketRes.progress);
         }
-        if (res.quotes && Object.keys(res.quotes).length > 0) {
-          freshQuotes = res.quotes;
-          setLiveQuotes(res.quotes);
+        if (marketRes.quotes && Object.keys(marketRes.quotes).length > 0) {
+          freshQuotes = marketRes.quotes;
+          setLiveQuotes(marketRes.quotes);
         }
-        setLastUpdated(new Date(res.timestamp || Date.now()));
+        setLastUpdated(new Date(marketRes.timestamp || Date.now()));
+      }
+      if (aiBatch && Object.keys(aiBatch).length > 0) {
+        freshAiBatch = aiBatch;
+        setAiBatchMap(aiBatch);
       }
     } catch (e) {
-      console.warn('Manual scan fetch quotes error:', e);
+      console.warn('Manual scan fetch error:', e);
     }
 
     setTimeout(() => {
       setScanStep(2);
       setScanProgress(45);
-    }, 400);
+    }, 350);
 
     setTimeout(() => {
       setScanStep(3);
       setScanProgress(75);
-    }, 800);
+    }, 700);
 
     setTimeout(() => {
       setScanStep(4);
       setScanProgress(100);
-      const results = runTechFundamentalScan(freshQuotes, freshProgress);
+      const results = runTechFundamentalScan(freshQuotes, freshProgress, freshAiBatch);
       setAnalyzedList(results);
       setIsScanning(false);
       setHasScanned(true);
-    }, 1200);
+    }, 1100);
+  };
+
+  // Re-generate AI Analysis for a specific stock in Modal
+  const handleRefreshSingleStockAnalysis = async (symbol: string) => {
+    setIsRefreshingDetail(true);
+    try {
+      const updated = await fetchAiStockAnalysis(symbol, true);
+      setAiBatchMap(prev => ({ ...prev, [symbol]: updated }));
+
+      // Update in analyzedList
+      setAnalyzedList(prev =>
+        prev.map(item => {
+          if (item.symbol === symbol) {
+            return {
+              ...item,
+              aiAnalysis: updated,
+            };
+          }
+          return item;
+        })
+      );
+
+      // Update detailStock
+      if (detailStock && detailStock.symbol === symbol) {
+        setDetailStock(prev => (prev ? { ...prev, aiAnalysis: updated } : null));
+      }
+    } catch (err) {
+      console.warn('Refresh single stock analysis error:', err);
+    } finally {
+      setIsRefreshingDetail(false);
+    }
   };
 
   // Filtered & Sorted List (Table Presentation with Real-time Sorting)
   const filteredList = useMemo(() => {
-    const stanceRank: Record<ValuationStance, number> = {
-      CHEAP: 1,
-      FAIR_LOW: 2,
-      FAIR_HIGH: 3,
-      EXPENSIVE: 4,
-    };
-
     const list = analyzedList.filter(stock => {
       // Sector filter
       if (selectedSector !== 'ALL' && stock.sector !== selectedSector) return false;
-      // Stance filter
-      if (selectedStance !== 'ALL' && stock.valuation.valuationStance !== selectedStance) return false;
+      // Competitiveness filter
+      if (selectedCompetitiveness !== 'ALL' && stock.aiAnalysis?.competitivenessRating !== selectedCompetitiveness) {
+        return false;
+      }
       // High growth only filter
-      if (minGrowthFilter && stock.scores.growthScore < 80) return false;
+      if (minGrowthFilter && (stock.aiAnalysis?.revenueGrowthScore ?? 0) < 80) return false;
       return true;
     });
 
@@ -232,25 +297,25 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
           valA = a.changePercent;
           valB = b.changePercent;
           break;
-        case 'valuationStance':
-          valA = stanceRank[a.valuation.valuationStance] ?? 99;
-          valB = stanceRank[b.valuation.valuationStance] ?? 99;
+        case 'competitivenessScore':
+          valA = a.aiAnalysis?.competitivenessScore ?? 0;
+          valB = b.aiAnalysis?.competitivenessScore ?? 0;
           break;
-        case 'cheapPrice':
-          valA = a.valuation.finalCheapPrice;
-          valB = b.valuation.finalCheapPrice;
+        case 'profitabilityScore':
+          valA = a.aiAnalysis?.profitabilityScore ?? 0;
+          valB = b.aiAnalysis?.profitabilityScore ?? 0;
           break;
-        case 'fairPrice':
-          valA = a.valuation.finalFairPrice;
-          valB = b.valuation.finalFairPrice;
+        case 'assetReturnScore':
+          valA = a.aiAnalysis?.assetReturnScore ?? 0;
+          valB = b.aiAnalysis?.assetReturnScore ?? 0;
           break;
-        case 'expensivePrice':
-          valA = a.valuation.finalExpensivePrice;
-          valB = b.valuation.finalExpensivePrice;
+        case 'revenueGrowthScore':
+          valA = a.aiAnalysis?.revenueGrowthScore ?? 0;
+          valB = b.aiAnalysis?.revenueGrowthScore ?? 0;
           break;
-        case 'upsidePotential':
-          valA = ((a.valuation.finalFairPrice - a.currentPrice) / a.currentPrice) * 100;
-          valB = ((b.valuation.finalFairPrice - b.currentPrice) / b.currentPrice) * 100;
+        case 'debtHealthScore':
+          valA = a.aiAnalysis?.debtHealthScore ?? 0;
+          valB = b.aiAnalysis?.debtHealthScore ?? 0;
           break;
         case 'grossMargin':
           valA = a.quarters[0]?.grossMargin ?? 0;
@@ -268,10 +333,6 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
           valA = a.expectedGrowthRate;
           valB = b.expectedGrowthRate;
           break;
-        case 'growthScore':
-          valA = a.valuation.growthPotentialScore;
-          valB = b.valuation.growthPotentialScore;
-          break;
         default:
           valA = a.rank;
           valB = b.rank;
@@ -283,23 +344,38 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
         return valA < valB ? 1 : valA > valB ? -1 : 0;
       }
     });
-  }, [analyzedList, selectedSector, selectedStance, minGrowthFilter, sortField, sortOrder]);
+  }, [analyzedList, selectedSector, selectedCompetitiveness, minGrowthFilter, sortField, sortOrder]);
 
   // Statistics Summary
   const stats = useMemo(() => {
     const total = analyzedList.length;
-    const cheapCount = analyzedList.filter(s => s.valuation.valuationStance === 'CHEAP').length;
-    const fairLowCount = analyzedList.filter(s => s.valuation.valuationStance === 'FAIR_LOW').length;
-    const avgGrowthScore = Math.round(analyzedList.reduce((acc, s) => acc + s.scores.growthScore, 0) / total);
-    const avgGrossMargin = (analyzedList.reduce((acc, s) => acc + s.quarters[0].grossMargin, 0) / total).toFixed(1);
-    const avgExpectedGrowth = (analyzedList.reduce((acc, s) => acc + s.expectedGrowthRate, 0) / total).toFixed(1);
+    const topTierCount = analyzedList.filter(s => s.aiAnalysis?.competitivenessRating === 'TOP_TIER').length;
+    const strongMoatCount = analyzedList.filter(s => s.aiAnalysis?.competitivenessRating === 'STRONG_MOAT').length;
+    const avgProfitScore = Math.round(
+      analyzedList.reduce((acc, s) => acc + (s.aiAnalysis?.profitabilityScore ?? 75), 0) / (total || 1)
+    );
+    const avgGrossMargin = (
+      analyzedList.reduce((acc, s) => acc + (s.quarters[0]?.grossMargin ?? 0), 0) / (total || 1)
+    ).toFixed(1);
+    const avgExpectedGrowth = (
+      analyzedList.reduce((acc, s) => acc + s.expectedGrowthRate, 0) / (total || 1)
+    ).toFixed(1);
+    const avgRoe = (
+      analyzedList.reduce((acc, s) => acc + (s.quarters[0]?.roe ?? 0), 0) / (total || 1)
+    ).toFixed(1);
+    const avgDebtRatio = (
+      analyzedList.reduce((acc, s) => acc + (s.quarters[0]?.debtRatio ?? 0), 0) / (total || 1)
+    ).toFixed(1);
+
     return {
       total,
-      cheapCount,
-      fairLowCount,
-      avgGrowthScore,
+      topTierCount,
+      strongMoatCount,
+      avgProfitScore,
       avgGrossMargin,
       avgExpectedGrowth,
+      avgRoe,
+      avgDebtRatio,
     };
   }, [analyzedList]);
 
@@ -317,20 +393,20 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
 
   return (
     <div className="flex flex-col gap-4 w-full">
-      {/* Hero Header & Scan Control Banner */}
+      {/* Hero Header & AI Agent Control Banner */}
       <div className="bg-linear-to-r from-slate-900 via-blue-950/40 to-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
         <div className="absolute right-0 top-0 -mt-8 -mr-8 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 relative z-10">
           <div>
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/40 uppercase tracking-wider flex items-center gap-1">
-                <Sparkles size={11} />
-                基本面 8 季財報深度量化掃描 ({marketProgress.currentQuarter} 最新校準)
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/40 uppercase tracking-wider flex items-center gap-1">
+                <Sparkles size={11} className="text-amber-400" />
+                AI Agent 專業財報分析師・後台自動推算 ({marketProgress.currentQuarter} 最新校準)
               </span>
               <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                <span className="text-emerald-400 font-semibold">Yahoo Finance 即時連線</span>
+                <span className="text-emerald-400 font-semibold">即時連線推算</span>
                 {lastUpdated && (
                   <span className="text-slate-400 text-[10px]">
                     · 最新報價 {lastUpdated.toLocaleTimeString('zh-TW', { hour12: false })}
@@ -338,16 +414,16 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                 )}
                 {(isFetchingLive || isSyncingFinancials) && (
                   <span className="text-blue-400 text-[10px] flex items-center gap-1">
-                    <RefreshCw size={10} className="animate-spin" /> 更新中...
+                    <RefreshCw size={10} className="animate-spin" /> 背景同步中...
                   </span>
                 )}
               </span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-slate-100 tracking-tight flex items-center gap-2">
-              <span>台灣科技股 7 大板塊高成長推薦 (Top 20)</span>
+              <span>台灣科技股 7 大板塊・AI 深度財報競爭力診斷 (Top 20)</span>
             </h2>
             <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
-              橫跨晶圓代工、先進封裝CoWoS、IC與AI晶片、AI伺服器、散熱、電源/BBU及ABF載板。深度檢索連續 8 個季度財報，透過 7 項量化指標及 <strong className="text-blue-300">PEG (60%) + P/E Band (40%) 雙模動態估值</strong> 精算便宜價、合理價與昂貴價。
+              由後台 <strong className="text-blue-300">AI Agent 專業財報分析師</strong> 深度推算全體科技股之連續 8 季財報序列。全面剖析<strong className="text-emerald-300">獲利能力</strong>、<strong className="text-cyan-300">資產報酬率 (ROA/ROE/ROIC)</strong>、<strong className="text-amber-300">營收增長率</strong>與<strong className="text-blue-300">負債健康度</strong>，橫向對比相關產業同儕評判技術護城河與未來三大核心下行風險，即時輔助操盤決策。
             </p>
           </div>
 
@@ -355,17 +431,17 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
             <button
               onClick={handleTriggerScan}
               disabled={isScanning}
-              className="flex-1 sm:flex-initial px-5 py-2.5 bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
+              className="flex-1 sm:flex-initial px-5 py-2.5 bg-linear-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               {isScanning ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>正在掃描財報數據庫...</span>
+                  <span>AI Agent 正在深入推算 8 季財報...</span>
                 </>
               ) : (
                 <>
                   <Play size={15} className="fill-white" />
-                  <span>立即重新掃描 8 季財報</span>
+                  <span>🧠 啟動 AI Agent 全量深入推算</span>
                 </>
               )}
             </button>
@@ -377,10 +453,10 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
           <div className="mt-4 pt-3 border-t border-slate-800/80">
             <div className="flex items-center justify-between text-xs text-slate-300 font-mono mb-1.5">
               <span>
-                {scanStep === 1 && '步驟 1/4: 檢索台股科技股 7 大類群最近 8 季度營收與獲利報表...'}
-                {scanStep === 2 && '步驟 2/4: 計算成長性、毛利率、營益率、ROE、ROIC、現金流、負債健康度 (0-100分)...'}
-                {scanStep === 3 && '步驟 3/4: 執行同產業族群互相比較與篩選 Top 20 領先高成長股票...'}
-                {scanStep === 4 && '步驟 4/4: 動態估值 (PEG 模型 60% + P/E Band 40% 加權算價) 計算便宜/合理/昂貴價...'}
+                {scanStep === 1 && '步驟 1/4: 檢索台股科技股 7 大類群最近 8 季度完整營收、毛利與獲利序列...'}
+                {scanStep === 2 && '步驟 2/4: AI Agent 深入精算獲利能力 (毛利/營益/EPS)、資產報酬率 (ROA/ROE/ROIC)...'}
+                {scanStep === 3 && '步驟 3/4: 橫向對比同板塊競爭對手，精準判定技術護城河、市占定價權與競爭力評級...'}
+                {scanStep === 4 && '步驟 4/4: 診斷負債健康度與現金流抗風險力，排查未來三大實質下行風險...'}
               </span>
               <span className="font-bold text-blue-400">{scanProgress}%</span>
             </div>
@@ -394,60 +470,60 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
         )}
       </div>
 
-      {/* KPI Summary Cards */}
+      {/* KPI Summary Cards (AI Financial Health & Competitiveness) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 text-xs">
         <div className="bg-slate-900/80 border border-slate-800/90 rounded-xl p-3 flex flex-col justify-between">
-          <span className="text-[11px] text-slate-400">推薦入選標的</span>
+          <span className="text-[11px] text-slate-400">精選追蹤標的</span>
           <div className="text-xl sm:text-2xl font-extrabold font-mono text-white mt-1">
             20 <span className="text-xs text-slate-400 font-sans font-normal">檔精選</span>
           </div>
           <span className="text-[10px] text-slate-500 mt-0.5">跨 7 大科技關鍵賽道</span>
         </div>
 
+        <div className="bg-slate-900/80 border border-amber-900/40 rounded-xl p-3 flex flex-col justify-between">
+          <span className="text-[11px] text-amber-400 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            產業頂級統治力
+          </span>
+          <div className="text-xl sm:text-2xl font-extrabold font-mono text-amber-300 mt-1">
+            {stats.topTierCount} <span className="text-xs text-slate-400 font-sans font-normal">檔</span>
+          </div>
+          <span className="text-[10px] text-amber-400/80 mt-0.5">同板塊技術獨佔龍頭</span>
+        </div>
+
         <div className="bg-slate-900/80 border border-emerald-900/40 rounded-xl p-3 flex flex-col justify-between">
           <span className="text-[11px] text-emerald-400 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            超值便宜區標的
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            領先強勢護城河
           </span>
           <div className="text-xl sm:text-2xl font-extrabold font-mono text-emerald-300 mt-1">
-            {stats.cheapCount} <span className="text-xs text-slate-400 font-sans font-normal">檔</span>
+            {stats.strongMoatCount} <span className="text-xs text-slate-400 font-sans font-normal">檔</span>
           </div>
-          <span className="text-[10px] text-emerald-400/80 mt-0.5">現價低於綜合便宜價</span>
+          <span className="text-[10px] text-emerald-400/80 mt-0.5">高議價權與供應鏈份額</span>
         </div>
 
-        <div className="bg-slate-900/80 border border-cyan-900/40 rounded-xl p-3 flex flex-col justify-between">
-          <span className="text-[11px] text-cyan-400 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-            合理偏低區標的
-          </span>
-          <div className="text-xl sm:text-2xl font-extrabold font-mono text-cyan-300 mt-1">
-            {stats.fairLowCount} <span className="text-xs text-slate-400 font-sans font-normal">檔</span>
-          </div>
-          <span className="text-[10px] text-cyan-400/80 mt-0.5">介於便宜價與合理價</span>
-        </div>
-
-        <div className="bg-slate-900/80 border border-slate-800/90 rounded-xl p-3 flex flex-col justify-between">
-          <span className="text-[11px] text-slate-400">平均預估獲利成長</span>
-          <div className="text-xl sm:text-2xl font-extrabold font-mono text-amber-300 mt-1">
-            +{stats.avgExpectedGrowth}%
-          </div>
-          <span className="text-[10px] text-slate-500 mt-0.5">次年度獲利動能</span>
-        </div>
-
-        <div className="bg-slate-900/80 border border-slate-800/90 rounded-xl p-3 flex flex-col justify-between">
-          <span className="text-[11px] text-slate-400">平均最新毛利率</span>
+        <div className="bg-slate-900/80 border border-purple-900/40 rounded-xl p-3 flex flex-col justify-between">
+          <span className="text-[11px] text-purple-400">平均最新毛利率</span>
           <div className="text-xl sm:text-2xl font-extrabold font-mono text-purple-300 mt-1">
             {stats.avgGrossMargin}%
           </div>
-          <span className="text-[10px] text-slate-500 mt-0.5">高毛利技術護城河</span>
+          <span className="text-[10px] text-slate-500 mt-0.5">高毛利技術定價壁壘</span>
         </div>
 
-        <div className="bg-slate-900/80 border border-slate-800/90 rounded-xl p-3 flex flex-col justify-between">
-          <span className="text-[11px] text-slate-400">平均基本面成長分</span>
-          <div className="text-xl sm:text-2xl font-extrabold font-mono text-blue-300 mt-1">
-            {stats.avgGrowthScore} <span className="text-xs text-slate-400 font-sans font-normal">/ 100</span>
+        <div className="bg-slate-900/80 border border-cyan-900/40 rounded-xl p-3 flex flex-col justify-between">
+          <span className="text-[11px] text-cyan-400">平均年化 ROE</span>
+          <div className="text-xl sm:text-2xl font-extrabold font-mono text-cyan-300 mt-1">
+            {stats.avgRoe}%
           </div>
-          <span className="text-[10px] text-slate-500 mt-0.5">近 8 季成長力綜合評分</span>
+          <span className="text-[10px] text-slate-500 mt-0.5">股東權益資本回報效率</span>
+        </div>
+
+        <div className="bg-slate-900/80 border border-blue-900/40 rounded-xl p-3 flex flex-col justify-between">
+          <span className="text-[11px] text-blue-400">平均負債比率</span>
+          <div className="text-xl sm:text-2xl font-extrabold font-mono text-blue-300 mt-1">
+            {stats.avgDebtRatio}%
+          </div>
+          <span className="text-[10px] text-slate-500 mt-0.5">資產結構財務安全警戒</span>
         </div>
       </div>
 
@@ -482,35 +558,46 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
           })}
         </div>
 
-        {/* Second Filter Row: Stance, Search, Growth Toggle, View Mode */}
+        {/* Second Filter Row: AI Competitiveness Filter, Growth Toggle, View Mode */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2 border-t border-slate-800/80">
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Stance Filter */}
+            {/* AI Competitiveness Rating Filter */}
             <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-              <span className="text-slate-500 text-[10px] px-1.5 font-medium">位階:</span>
+              <span className="text-slate-500 text-[10px] px-1.5 font-medium flex items-center gap-1">
+                <Award size={11} className="text-amber-400" />
+                <span>AI競爭力:</span>
+              </span>
               <button
-                onClick={() => setSelectedStance('ALL')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                  selectedStance === 'ALL' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                onClick={() => setSelectedCompetitiveness('ALL')}
+                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                  selectedCompetitiveness === 'ALL' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 全部
               </button>
               <button
-                onClick={() => setSelectedStance('CHEAP')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                  selectedStance === 'CHEAP' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-emerald-300'
+                onClick={() => setSelectedCompetitiveness('TOP_TIER')}
+                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                  selectedCompetitiveness === 'TOP_TIER' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-amber-300'
                 }`}
               >
-                超值便宜
+                🌟 頂級統治力
               </button>
               <button
-                onClick={() => setSelectedStance('FAIR_LOW')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                  selectedStance === 'FAIR_LOW' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-cyan-300'
+                onClick={() => setSelectedCompetitiveness('STRONG_MOAT')}
+                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                  selectedCompetitiveness === 'STRONG_MOAT' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-emerald-300'
                 }`}
               >
-                合理偏低
+                🟢 領先強勢
+              </button>
+              <button
+                onClick={() => setSelectedCompetitiveness('PEER_AVERAGE')}
+                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                  selectedCompetitiveness === 'PEER_AVERAGE' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-cyan-300'
+                }`}
+              >
+                🟡 同業持平
               </button>
             </div>
 
@@ -524,11 +611,11 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
               }`}
             >
               <Flame size={13} className={minGrowthFilter ? 'text-amber-400' : ''} />
-              <span>僅看高成長 (評分≥80)</span>
+              <span>僅看高成長動能 (動能分≥80)</span>
             </button>
           </div>
 
-          {/* Table Metrics Group & Counter (操盤專用指標切換) */}
+          {/* Table Metrics Group (操盤指標切換) */}
           <div className="flex items-center justify-between sm:justify-end gap-2 flex-wrap">
             <div className="text-[11px] text-slate-400 flex items-center gap-1.5 font-medium">
               <span>共</span>
@@ -545,20 +632,9 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title="完整檢視 12 項財報與估值指標"
+                title="全方位檢視 AI 競爭力、獲利、資產報酬、營收與風險"
               >
-                全覽
-              </button>
-              <button
-                onClick={() => setMetricGroup('VALUATION')}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                  metricGroup === 'VALUATION'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="聚焦現價、動態位階、便宜價、合理價與折溢價空間"
-              >
-                估值定價
+                AI 綜合全覽
               </button>
               <button
                 onClick={() => setMetricGroup('PROFITABILITY')}
@@ -567,9 +643,20 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title="聚焦毛利率、ROE、ROIC與成長動能護城河"
+                title="聚焦毛利率、營益率、ROE、ROIC與資本回報"
               >
-                獲利護城河
+                獲利與資本回報
+              </button>
+              <button
+                onClick={() => setMetricGroup('GROWTH_DEBT')}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                  metricGroup === 'GROWTH_DEBT'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="聚焦營收成長 YoY、負債比率與現金流抗風險力"
+              >
+                營收動能與負債健康
               </button>
             </div>
           </div>
@@ -581,11 +668,11 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-12 text-center flex flex-col items-center justify-center gap-3">
           <Info size={32} className="text-slate-500" />
           <p className="text-sm font-semibold text-slate-300">查無符合條件的科技股標的</p>
-          <p className="text-xs text-slate-500">請嘗試調整產業類別或估值位階篩選條件。</p>
+          <p className="text-xs text-slate-500">請嘗試調整產業類別或 AI 競爭力篩選條件。</p>
           <button
             onClick={() => {
               setSelectedSector('ALL');
-              setSelectedStance('ALL');
+              setSelectedCompetitiveness('ALL');
               setMinGrowthFilter(false);
             }}
             className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg mt-2 cursor-pointer"
@@ -596,28 +683,26 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
       ) : (
         /* PROFESSIONAL TRADING TABLE FOR MOBILE & DESKTOP */
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-          {/* Mobile Swipe & Sort Hint Banner */}
+          {/* Mobile Swipe Hint Banner */}
           <div className="sm:hidden px-3 py-2 bg-slate-950/90 border-b border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
-            <span className="flex items-center gap-1.5 text-blue-400">
-              <Smartphone size={13} />
-              <span>左右滑動查看完整數據 · 點表頭排序</span>
+            <span className="flex items-center gap-1">
+              <Sparkles size={11} className="text-blue-400" />
+              點擊任一標的查看 <strong>AI 深度分析研報</strong>
             </span>
-            <span className="text-[10px] text-slate-500 font-mono">
-              {sortField === 'rank' ? '按排名' : sortField === 'currentPrice' ? '按現價' : '已自訂排序'} ({sortOrder === 'asc' ? '升序' : '降序'})
-            </span>
+            <span className="text-[10px] text-slate-500">可左右滑動檢視更多數據 ➔</span>
           </div>
 
-          <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-800">
-            <table className="w-full text-xs text-left border-collapse">
-              <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-800 select-none">
+          <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-700">
+            <table className="w-full text-left text-xs whitespace-nowrap">
+              <thead className="bg-slate-950/90 text-slate-400 font-semibold border-b border-slate-800 text-[11px] tracking-wider uppercase select-none">
                 <tr>
-                  {/* Sticky First Column for Mobile & Desktop */}
+                  {/* Rank Column */}
                   <th
                     onClick={() => handleSort('rank')}
-                    className="sticky left-0 bg-slate-950 z-20 py-3 px-3 border-r border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)] cursor-pointer hover:text-white transition-colors min-w-[135px] sm:min-w-[160px]"
+                    className="py-3 px-3 text-center cursor-pointer hover:text-white transition-colors w-12"
                   >
-                    <div className="flex items-center gap-1.5">
-                      <span>排名 / 標的</span>
+                    <div className="flex items-center justify-center gap-1">
+                      <span>排名</span>
                       {sortField === 'rank' ? (
                         sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
                       ) : (
@@ -626,15 +711,17 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                     </div>
                   </th>
 
-                  {/* Sector Column (shown in ALL mode) */}
-                  {metricGroup === 'ALL' && (
-                    <th className="py-3 px-3 min-w-[100px]">產業類別</th>
-                  )}
+                  {/* Stock Name & Symbol Column */}
+                  <th className="py-3 px-3 min-w-[150px]">
+                    <div className="flex items-center gap-1.5">
+                      <span>科技標的 / 產業賽道</span>
+                    </div>
+                  </th>
 
                   {/* Current Price Column */}
                   <th
                     onClick={() => handleSort('currentPrice')}
-                    className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[90px]"
+                    className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[75px]"
                   >
                     <div className="flex items-center justify-end gap-1">
                       <span>現價</span>
@@ -661,87 +748,31 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                     </div>
                   </th>
 
-                  {/* Valuation Columns */}
-                  {(metricGroup === 'ALL' || metricGroup === 'VALUATION') && (
-                    <>
-                      <th
-                        onClick={() => handleSort('valuationStance')}
-                        className="py-3 px-3 text-center cursor-pointer hover:text-white transition-colors min-w-[85px]"
-                      >
-                        <div className="flex items-center justify-center gap-1">
-                          <span>動態位階</span>
-                          {sortField === 'valuationStance' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('cheapPrice')}
-                        className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[85px]"
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          <span className="text-emerald-400">便宜價</span>
-                          {sortField === 'cheapPrice' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('fairPrice')}
-                        className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[85px]"
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          <span className="text-cyan-400">合理價</span>
-                          {sortField === 'fairPrice' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('expensivePrice')}
-                        className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[85px]"
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          <span className="text-rose-400">昂貴價</span>
-                          {sortField === 'expensivePrice' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('upsidePotential')}
-                        className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[90px]"
-                        title="現價相對於合理價的潛在折溢價空間"
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          <span>折價空間</span>
-                          {sortField === 'upsidePotential' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                    </>
-                  )}
-
-                  {/* Profitability Columns */}
+                  {/* AI Competitiveness Columns */}
                   {(metricGroup === 'ALL' || metricGroup === 'PROFITABILITY') && (
                     <>
                       <th
+                        onClick={() => handleSort('competitivenessScore')}
+                        className="py-3 px-3 text-center cursor-pointer hover:text-white transition-colors min-w-[140px]"
+                        title="AI 產業競爭力評級與同業賽道對比"
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <Award size={12} className="text-amber-400" />
+                          <span>AI 產業競爭力</span>
+                          {sortField === 'competitivenessScore' ? (
+                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
+                          ) : (
+                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
+                          )}
+                        </div>
+                      </th>
+                      <th
                         onClick={() => handleSort('grossMargin')}
                         className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[85px]"
+                        title="最新單季毛利率"
                       >
                         <div className="flex items-center justify-end gap-1">
-                          <span>最新毛利</span>
+                          <span className="text-purple-300">最新毛利</span>
                           {sortField === 'grossMargin' ? (
                             sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
                           ) : (
@@ -752,9 +783,10 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                       <th
                         onClick={() => handleSort('roe')}
                         className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[75px]"
+                        title="當季年化股東權益報酬率 ROE"
                       >
                         <div className="flex items-center justify-end gap-1">
-                          <span>ROE</span>
+                          <span className="text-cyan-300">ROE</span>
                           {sortField === 'roe' ? (
                             sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
                           ) : (
@@ -765,36 +797,11 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                       <th
                         onClick={() => handleSort('roic')}
                         className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[75px]"
+                        title="資本回報率 ROIC"
                       >
                         <div className="flex items-center justify-end gap-1">
-                          <span>ROIC</span>
+                          <span className="text-emerald-300">ROIC</span>
                           {sortField === 'roic' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('expectedGrowthRate')}
-                        className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[85px]"
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          <span>預估成長</span>
-                          {sortField === 'expectedGrowthRate' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('growthScore')}
-                        className="py-3 px-3 text-center cursor-pointer hover:text-white transition-colors min-w-[80px]"
-                      >
-                        <div className="flex items-center justify-center gap-1">
-                          <span>成長評分</span>
-                          {sortField === 'growthScore' ? (
                             sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
                           ) : (
                             <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
@@ -804,145 +811,238 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                     </>
                   )}
 
-                  {/* Actions Column */}
-                  <th className="py-3 px-3 text-center min-w-[110px]">操盤操作</th>
+                  {/* Growth & Debt Health Columns */}
+                  {(metricGroup === 'ALL' || metricGroup === 'GROWTH_DEBT') && (
+                    <>
+                      <th
+                        onClick={() => handleSort('revenueGrowthScore')}
+                        className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[85px]"
+                        title="營收年增率動能"
+                      >
+                        <div className="flex items-center justify-end gap-1">
+                          <span className="text-amber-400">營收YoY</span>
+                          {sortField === 'revenueGrowthScore' ? (
+                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
+                          ) : (
+                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort('expectedGrowthRate')}
+                        className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[90px]"
+                        title="市場預估次年度獲利成長率"
+                      >
+                        <div className="flex items-center justify-end gap-1">
+                          <span>預期成長</span>
+                          {sortField === 'expectedGrowthRate' ? (
+                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
+                          ) : (
+                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort('debtHealthScore')}
+                        className="py-3 px-3 text-center cursor-pointer hover:text-white transition-colors min-w-[110px]"
+                        title="負債比率結構與財務安全評等"
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <ShieldCheck size={12} className="text-blue-400" />
+                          <span>負債健康度</span>
+                          {sortField === 'debtHealthScore' ? (
+                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
+                          ) : (
+                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
+                          )}
+                        </div>
+                      </th>
+                    </>
+                  )}
+
+                  {/* Core Future Risks Column */}
+                  {metricGroup === 'ALL' && (
+                    <th className="py-3 px-3 min-w-[160px] text-slate-400">
+                      <div className="flex items-center gap-1">
+                        <AlertTriangle size={12} className="text-rose-400" />
+                        <span>未來主要風險</span>
+                      </div>
+                    </th>
+                  )}
+
+                  {/* Action Column */}
+                  <th className="py-3 px-3 text-center min-w-[110px]">
+                    <span>AI 研報 / 看盤</span>
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800 font-mono">
+
+              <tbody className="divide-y divide-slate-800/80 font-mono">
                 {filteredList.map(stock => {
-                  const upsidePct = ((stock.valuation.finalFairPrice - stock.currentPrice) / stock.currentPrice) * 100;
+                  const ai = stock.aiAnalysis;
+                  const isUp = stock.change > 0;
+                  const isDown = stock.change < 0;
+
                   return (
-                    <tr key={stock.symbol} className="hover:bg-slate-800/50 group transition-colors">
-                      {/* Sticky First Column */}
-                      <td className="sticky left-0 bg-slate-900 group-hover:bg-slate-800/90 z-10 py-3 px-3 font-sans border-r border-slate-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)]">
-                        <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded bg-blue-900/50 text-blue-300 font-bold text-xs flex items-center justify-center font-mono shrink-0">
-                            {stock.rank}
-                          </span>
-                          <div className="min-w-0">
-                            <strong className="text-slate-100 font-bold text-xs block truncate">{stock.name}</strong>
-                            <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono">
-                              <span>{stock.code}</span>
-                              <span className="text-slate-600 hidden sm:inline">·</span>
-                              <span className="text-blue-400 font-sans truncate max-w-[70px] hidden sm:inline">{stock.sector}</span>
-                            </div>
-                          </div>
-                        </div>
+                    <tr
+                      key={stock.symbol}
+                      onClick={() => setDetailStock(stock)}
+                      className="hover:bg-slate-800/60 transition-colors cursor-pointer group"
+                    >
+                      {/* Rank */}
+                      <td className="py-3 px-3 text-center">
+                        <span
+                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                            stock.rank === 1
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
+                              : stock.rank === 2
+                              ? 'bg-slate-300/20 text-slate-200 border border-slate-300/40'
+                              : stock.rank === 3
+                              ? 'bg-amber-700/20 text-amber-500 border border-amber-700/40'
+                              : 'text-slate-400'
+                          }`}
+                        >
+                          {stock.rank}
+                        </span>
                       </td>
 
-                      {/* Sector Column */}
-                      {metricGroup === 'ALL' && (
-                        <td className="py-3 px-3 font-sans">
-                          <span className="text-blue-400 font-medium block text-xs">{stock.sector}</span>
-                          <span className="text-[10px] text-slate-500 block truncate max-w-[120px]">{stock.subCategory}</span>
-                        </td>
-                      )}
+                      {/* Stock Name & Symbol */}
+                      <td className="py-3 px-3 font-sans">
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-white group-hover:text-blue-400 transition-colors text-xs sm:text-sm">
+                              {stock.name}
+                            </span>
+                            <span className="font-mono text-xs text-slate-400">
+                              {stock.code}
+                            </span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700/60">
+                              {stock.sector}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-slate-400 truncate max-w-[200px] mt-0.5">
+                            {stock.subCategory}
+                          </span>
+                        </div>
+                      </td>
 
                       {/* Current Price */}
-                      <td className="py-3 px-3 text-right">
-                        <div className="font-bold text-slate-100 text-xs sm:text-sm">
-                          ${typeof stock.currentPrice === 'number'
-                            ? stock.currentPrice.toLocaleString('zh-TW', {
-                                minimumFractionDigits: stock.currentPrice < 100 ? 1 : 0,
-                                maximumFractionDigits: 2,
-                              })
-                            : stock.currentPrice}
-                        </div>
+                      <td className="py-3 px-3 text-right font-bold text-slate-100 text-xs sm:text-sm">
+                        ${stock.currentPrice}
                       </td>
 
-                      {/* Change % */}
+                      {/* Change Percent */}
                       <td className="py-3 px-3 text-right">
                         <div
-                          className={`text-xs font-mono font-bold flex items-center justify-end gap-0.5 ${
-                            stock.change > 0
-                              ? 'text-red-400'
-                              : stock.change < 0
+                          className={`inline-flex items-center gap-0.5 font-bold ${
+                            isUp
+                              ? 'text-rose-400'
+                              : isDown
                               ? 'text-emerald-400'
                               : 'text-slate-400'
                           }`}
                         >
-                          {stock.change > 0 ? (
+                          {isUp ? (
                             <TrendingUp size={11} />
-                          ) : stock.change < 0 ? (
+                          ) : isDown ? (
                             <TrendingDown size={11} />
                           ) : null}
                           <span>
-                            {stock.change > 0 ? '+' : ''}
+                            {isUp ? '+' : ''}
                             {stock.changePercent.toFixed(2)}%
                           </span>
                         </div>
                       </td>
 
-                      {/* Valuation Metrics */}
-                      {(metricGroup === 'ALL' || metricGroup === 'VALUATION') && (
+                      {/* AI Competitiveness & Profitability */}
+                      {(metricGroup === 'ALL' || metricGroup === 'PROFITABILITY') && (
                         <>
                           <td className="py-3 px-3 text-center font-sans">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap ${stock.valuation.valuationBadgeClass}`}>
-                              {stock.valuation.valuationLabel}
-                            </span>
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap ${
+                                  ai?.competitivenessBadgeClass || 'bg-slate-800 text-slate-300'
+                                }`}
+                              >
+                                {ai?.competitivenessLabel || '領先強勢'}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                評分: {ai?.competitivenessScore ?? 80}分
+                              </span>
+                            </div>
                           </td>
-                          <td className="py-3 px-3 text-right text-emerald-400 font-bold">
-                            ${stock.valuation.finalCheapPrice}
+                          <td className="py-3 px-3 text-right text-purple-300 font-semibold">
+                            {stock.quarters[0]?.grossMargin}%
                           </td>
-                          <td className="py-3 px-3 text-right text-cyan-400 font-bold">
-                            ${stock.valuation.finalFairPrice}
+                          <td className="py-3 px-3 text-right text-cyan-300 font-semibold">
+                            {stock.quarters[0]?.roe}%
                           </td>
-                          <td className="py-3 px-3 text-right text-rose-400 font-bold">
-                            ${stock.valuation.finalExpensivePrice}
-                          </td>
-                          <td className="py-3 px-3 text-right">
-                            <span
-                              className={`font-bold text-xs ${
-                                upsidePct > 0
-                                  ? 'text-emerald-400'
-                                  : 'text-rose-400'
-                              }`}
-                            >
-                              {upsidePct > 0 ? `+${upsidePct.toFixed(1)}%` : `${upsidePct.toFixed(1)}%`}
-                            </span>
+                          <td className="py-3 px-3 text-right text-emerald-300 font-bold">
+                            {stock.quarters[0]?.roic}%
                           </td>
                         </>
                       )}
 
-                      {/* Profitability Metrics */}
-                      {(metricGroup === 'ALL' || metricGroup === 'PROFITABILITY') && (
+                      {/* Growth & Debt Health */}
+                      {(metricGroup === 'ALL' || metricGroup === 'GROWTH_DEBT') && (
                         <>
-                          <td className="py-3 px-3 text-right text-purple-300 font-semibold">
-                            {stock.quarters[0].grossMargin}%
-                          </td>
-                          <td className="py-3 px-3 text-right text-slate-200">
-                            {stock.quarters[0].roe}%
-                          </td>
-                          <td className="py-3 px-3 text-right text-emerald-300 font-bold">
-                            {stock.quarters[0].roic}%
+                          <td className="py-3 px-3 text-right">
+                            <span
+                              className={`font-semibold ${
+                                (stock.quarters[0]?.revenueYoY ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                              }`}
+                            >
+                              {(stock.quarters[0]?.revenueYoY ?? 0) >= 0 ? '+' : ''}
+                              {stock.quarters[0]?.revenueYoY}%
+                            </span>
                           </td>
                           <td className="py-3 px-3 text-right text-amber-300 font-bold">
                             +{stock.expectedGrowthRate}%
                           </td>
-                          <td className="py-3 px-3 text-center font-bold text-blue-400">
-                            <span className="px-1.5 py-0.5 rounded bg-blue-950/80 border border-blue-800/60 text-xs">
-                              {stock.valuation.growthPotentialScore}
-                            </span>
+                          <td className="py-3 px-3 text-center font-sans">
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span
+                                className={`px-2 py-0.2 rounded-full text-[10px] font-bold border whitespace-nowrap ${
+                                  ai?.debtHealthBadgeClass || 'bg-slate-800 text-slate-300'
+                                }`}
+                              >
+                                {ai?.debtHealthStatusLabel || '財務安全'}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                負債 {stock.quarters[0]?.debtRatio}%
+                              </span>
+                            </div>
                           </td>
                         </>
                       )}
 
-                      {/* Action buttons */}
-                      <td className="py-3 px-3 text-center font-sans">
+                      {/* Core Future Risks */}
+                      {metricGroup === 'ALL' && (
+                        <td className="py-3 px-3 font-sans max-w-[220px]">
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-300 truncate" title={ai?.futureRisks?.[0] || '景氣循環波動'}>
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" />
+                            <span className="truncate">{ai?.futureRisks?.[0] || '全球終端景氣循環與地緣政治關稅波動'}</span>
+                          </div>
+                        </td>
+                      )}
+
+                      {/* Action Buttons */}
+                      <td className="py-3 px-3 text-center" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1.5">
                           <button
                             onClick={() => setDetailStock(stock)}
-                            className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded text-[11px] font-semibold transition-colors cursor-pointer"
-                            title="查看連續 8 季財報數據與算價模型"
+                            className="px-2 py-1 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 hover:text-white rounded text-[11px] font-semibold flex items-center gap-1 transition-colors border border-blue-500/30 cursor-pointer"
+                            title="開啟 AI Agent 專業研報"
                           >
-                            財報
+                            <Sparkles size={11} className="text-amber-400" />
+                            <span>AI 研報</span>
                           </button>
                           <button
                             onClick={() => onSelectStockForChart(stock.symbol, stock.name)}
-                            className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[11px] font-semibold transition-colors cursor-pointer shadow-xs"
-                            title="跳轉至即時K線指標與量化回測"
+                            className="p-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded transition-colors border border-slate-700 cursor-pointer"
+                            title="帶入即時 K 線圖"
                           >
-                            K線
+                            <LineChart size={13} />
                           </button>
                         </div>
                       </td>
@@ -955,270 +1055,16 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
         </div>
       )}
 
-      {/* 8-Quarter Financials & Dynamic Valuation Detail Modal */}
+      {/* AI Deep Financial Analysis Modal */}
       {detailStock && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full p-4 sm:p-6 flex flex-col gap-4 shadow-2xl my-auto max-h-[92vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="flex items-start justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-linear-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white font-extrabold text-lg">
-                  #{detailStock.rank}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-xl font-black text-slate-100">{detailStock.name}</h2>
-                    <span className="font-mono text-sm text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                      {detailStock.symbol}
-                    </span>
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${detailStock.valuation.valuationBadgeClass}`}>
-                      {detailStock.valuation.valuationLabel}
-                    </span>
-                  </div>
-                  <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
-                    <span className="text-blue-400 font-semibold">{detailStock.sector}</span>
-                    <span>·</span>
-                    <span>{detailStock.subCategory}</span>
-                    <span>·</span>
-                    <span>同族群排名 第 {detailStock.peerRankInSector} / {detailStock.peerCountInSector} 名</span>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setDetailStock(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Core Description & Catalyst */}
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-xs flex flex-col gap-2">
-              <div className="flex items-start gap-2">
-                <Info size={14} className="text-blue-400 shrink-0 mt-0.5" />
-                <span className="text-slate-300">
-                  <strong className="text-white">公司核心護城河：</strong>{detailStock.description}
-                </span>
-              </div>
-              <div className="flex items-start gap-2">
-                <Sparkles size={14} className="text-amber-400 shrink-0 mt-0.5" />
-                <span className="text-slate-300">
-                  <strong className="text-amber-300">未來獲利催化劑：</strong>{detailStock.catalyst}
-                </span>
-              </div>
-            </div>
-
-            {/* Valuation Breakdown Formula Panel (PEG 60% + PE Band 40%) */}
-            <div className="bg-slate-950 border border-blue-900/40 rounded-xl p-4 flex flex-col gap-3">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <div className="flex items-center gap-2">
-                  <Calculator size={15} className="text-blue-400" />
-                  <h4 className="font-bold text-slate-200 text-xs sm:text-sm">
-                    動態估值矩陣拆解 (PEG 模型 60% + P/E Band 河流圖 40%)
-                  </h4>
-                </div>
-                <div className="text-xs font-mono text-slate-400">
-                  現價: <strong className="text-white">${detailStock.currentPrice}</strong> · TTM EPS: <strong className="text-blue-300">${detailStock.ttmEps}</strong>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                {/* PEG Model Details */}
-                <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800 flex flex-col gap-1.5 font-mono">
-                  <div className="flex items-center justify-between font-sans text-blue-300 font-semibold">
-                    <span>1. PEG 成長性估值 (60% 權重)</span>
-                    <span className="text-[11px] text-slate-400">G = +{detailStock.expectedGrowthRate}%</span>
-                  </div>
-                  <div className="text-[11px] text-slate-400 font-sans">
-                    Peter Lynch 標準 (便宜PEG=0.75, 合理=1.05, 昂貴=1.45)
-                  </div>
-                  <div className="grid grid-cols-3 gap-1 pt-1 text-center">
-                    <div>
-                      <span className="text-[10px] text-slate-500 font-sans block">便宜價</span>
-                      <strong className="text-emerald-400">${detailStock.valuation.pegCheap}</strong>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-500 font-sans block">合理價</span>
-                      <strong className="text-cyan-400">${detailStock.valuation.pegFair}</strong>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-500 font-sans block">昂貴價</span>
-                      <strong className="text-rose-400">${detailStock.valuation.pegExpensive}</strong>
-                    </div>
-                  </div>
-                </div>
-
-                {/* PE Band Details */}
-                <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800 flex flex-col gap-1.5 font-mono">
-                  <div className="flex items-center justify-between font-sans text-indigo-300 font-semibold">
-                    <span>2. P/E Band 歷史河流圖 (40% 權重)</span>
-                    <span className="text-[11px] text-slate-400">PE區間: {detailStock.peLow}x ~ {detailStock.peHigh}x</span>
-                  </div>
-                  <div className="text-[11px] text-slate-400 font-sans">
-                    基於歷史 5 年本益比位階河流統計低標、中標與高標
-                  </div>
-                  <div className="grid grid-cols-3 gap-1 pt-1 text-center">
-                    <div>
-                      <span className="text-[10px] text-slate-500 font-sans block">低標(便宜)</span>
-                      <strong className="text-emerald-400">${detailStock.valuation.peBandCheap}</strong>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-500 font-sans block">中標(合理)</span>
-                      <strong className="text-cyan-400">${detailStock.valuation.peBandFair}</strong>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-500 font-sans block">高標(昂貴)</span>
-                      <strong className="text-rose-400">${detailStock.valuation.peBandExpensive}</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Weighted Final Combined Prices */}
-              <div className="bg-blue-950/30 border border-blue-800/40 p-3 rounded-lg flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-                <div className="text-slate-300">
-                  <strong className="text-white block">加權最終結論價位：</strong>
-                  <span className="text-slate-400 text-[11px]">
-                    現價 ${detailStock.currentPrice} 處於【<span className="text-white font-bold">{detailStock.valuation.valuationLabel}</span>】，距合理價空間 {detailStock.valuation.upsideToFair > 0 ? `+${detailStock.valuation.upsideToFair}%` : `${detailStock.valuation.upsideToFair}%`}
-                  </span>
-                </div>
-                <div className="flex items-center gap-4 font-mono">
-                  <div className="text-center">
-                    <span className="text-[10px] text-emerald-400 font-sans block font-semibold">綜合便宜價</span>
-                    <strong className="text-lg text-emerald-300 font-black">${detailStock.valuation.finalCheapPrice}</strong>
-                  </div>
-                  <div className="text-center">
-                    <span className="text-[10px] text-cyan-400 font-sans block font-semibold">綜合合理價</span>
-                    <strong className="text-lg text-cyan-300 font-black">${detailStock.valuation.finalFairPrice}</strong>
-                  </div>
-                  <div className="text-center">
-                    <span className="text-[10px] text-rose-400 font-sans block font-semibold">綜合昂貴價</span>
-                    <strong className="text-lg text-rose-300 font-black">${detailStock.valuation.finalExpensivePrice}</strong>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 8-Quarter Financials Table */}
-            <div>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 mb-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h4 className="font-bold text-slate-200 text-xs sm:text-sm flex items-center gap-1.5">
-                    <FileSpreadsheet size={15} className="text-emerald-400" />
-                    <span>最近 8 個季度財報明細表 (連續追蹤至 2026 最新季度)</span>
-                  </h4>
-                  <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    2026 最新季報已同步
-                  </span>
-                </div>
-                <span className="text-[11px] text-slate-500 font-mono">單位: 新台幣 / 億元</span>
-              </div>
-
-              <div className="border border-slate-800 rounded-xl overflow-x-auto bg-slate-950">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-900/90 text-slate-400 uppercase text-[10px] font-semibold border-b border-slate-800">
-                    <tr>
-                      <th className="py-2.5 px-3">季度</th>
-                      <th className="py-2.5 px-3 text-right">營收 YoY</th>
-                      <th className="py-2.5 px-3 text-right">毛利率</th>
-                      <th className="py-2.5 px-3 text-right">營益率</th>
-                      <th className="py-2.5 px-3 text-right">ROE</th>
-                      <th className="py-2.5 px-3 text-right">ROIC</th>
-                      <th className="py-2.5 px-3 text-right">自由現金流</th>
-                      <th className="py-2.5 px-3 text-right">負債比</th>
-                      <th className="py-2.5 px-3 text-right">單季 EPS</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/80 font-mono">
-                    {detailStock.quarters.map((q, idx) => (
-                      <tr key={q.quarter} className={idx === 0 ? 'bg-blue-950/20 font-semibold' : 'hover:bg-slate-900/50'}>
-                        <td className="py-2.5 px-3 font-sans flex items-center gap-1.5">
-                          <span className="text-slate-200">{q.quarter}</span>
-                          {idx === 0 && (
-                            <span className="px-1.5 py-0.2 rounded text-[9px] bg-blue-600 text-white font-bold">最新</span>
-                          )}
-                        </td>
-                        <td className={`py-2.5 px-3 text-right ${q.revenueYoY >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                          {q.revenueYoY >= 0 ? `+${q.revenueYoY.toFixed(1)}%` : `${q.revenueYoY.toFixed(1)}%`}
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-purple-300 font-bold">
-                          {q.grossMargin.toFixed(1)}%
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-slate-300">
-                          {q.operatingMargin.toFixed(1)}%
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-slate-200">
-                          {q.roe.toFixed(1)}%
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-emerald-300">
-                          {q.roic.toFixed(1)}%
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-slate-300">
-                          ${q.freeCashFlow} 億
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-slate-400">
-                          {q.debtRatio.toFixed(1)}%
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-bold text-white">
-                          ${q.eps.toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Opportunities & Risks Detail */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div className="bg-emerald-950/20 border border-emerald-900/40 rounded-xl p-3 flex flex-col gap-1.5">
-                <span className="font-bold text-emerald-300 flex items-center gap-1">
-                  <CheckCircle2 size={14} className="text-emerald-400" />
-                  操盤手機會洞察
-                </span>
-                <ul className="list-disc list-inside text-slate-300 space-y-1">
-                  {detailStock.opportunities.map((opp, idx) => (
-                    <li key={idx} className="leading-relaxed">{opp}</li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="bg-rose-950/20 border border-rose-900/40 rounded-xl p-3 flex flex-col gap-1.5">
-                <span className="font-bold text-rose-300 flex items-center gap-1">
-                  <AlertTriangle size={14} className="text-rose-400" />
-                  操盤手風險提示
-                </span>
-                <ul className="list-disc list-inside text-slate-300 space-y-1">
-                  {detailStock.risks.map((risk, idx) => (
-                    <li key={idx} className="leading-relaxed">{risk}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-              <button
-                onClick={() => setDetailStock(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-              >
-                關閉
-              </button>
-              <button
-                onClick={() => {
-                  onSelectStockForChart(detailStock.symbol, detailStock.name);
-                  setDetailStock(null);
-                }}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-md"
-              >
-                <LineChart size={14} />
-                <span>切換至此標的 K 線圖與量化回測</span>
-              </button>
-            </div>
-          </div>
-        </div>
+        <AiFinancialReportModal
+          stock={detailStock.aiAnalysis}
+          isOpen={!!detailStock}
+          onClose={() => setDetailStock(null)}
+          onSelectStockForChart={onSelectStockForChart}
+          onRefreshAnalysis={handleRefreshSingleStockAnalysis}
+          isRefreshing={isRefreshingDetail}
+        />
       )}
     </div>
   );

@@ -3,7 +3,7 @@ import { WatchlistItem, StrategyConfig, CandleData, StockStrategySignal, Strateg
 import { getWatchlist, addWatchlist, deleteWatchlist, getBacktestRecords, deleteBacktest, fetchBatchCandles, BatchCandlesItem } from '../services/api.ts';
 import { POPULAR_TAIWAN_STOCKS } from '../data/taiwanStocks.ts';
 import { runBacktest, evaluateStrategySignal, DEFAULT_STRATEGY } from '../utils/backtestEngine.ts';
-import { Plus, Trash2, Bookmark, History, Search, ArrowUpRight, ArrowDownRight, Sparkles, RefreshCw, Filter, TrendingUp, TrendingDown, Clock, ShieldCheck, Zap } from 'lucide-react';
+import { Plus, Trash2, Bookmark, History, Search, ArrowUpRight, ArrowDownRight, Sparkles, RefreshCw, Filter, TrendingUp, TrendingDown, Clock, ShieldCheck, Zap, CheckCircle2 } from 'lucide-react';
 
 interface WatchlistManagerProps {
   currentSymbol: string;
@@ -164,18 +164,15 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
     setNotes('');
   };
 
-  // Handle Delete Watchlist item
+  // Handle Delete Watchlist item (同步刪除 Cookie 與快取)
   const handleDelete = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user) {
-      setWatchlist(prev => prev.filter(item => item.id !== id));
-      return;
-    }
     try {
       await deleteWatchlist(id);
       setWatchlist(prev => prev.filter(item => item.id !== id));
     } catch (err) {
-      console.error(err);
+      console.error('Delete watchlist error:', err);
+      setWatchlist(prev => prev.filter(item => item.id !== id));
     }
   };
 

@@ -41,7 +41,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ activeTab, onChangeTab }) 
           <Sparkles size={18} className={activeTab === 'fundamentals' ? 'text-blue-400' : 'text-amber-400'} />
           <span className="absolute -top-0.5 -right-1 w-1.5 h-1.5 bg-blue-400 rounded-full animate-ping opacity-75" />
         </div>
-        <span className="text-[10px] mt-0.5 tracking-tight font-medium">財報估值</span>
+        <span className="text-[10px] mt-0.5 tracking-tight font-medium">AI財報</span>
       </button>
 
       <button

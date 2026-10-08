@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { StockQuote, CandleData, TradeRecord, WatchlistItem, StrategyConfig } from './types/stock.ts';
 import { fetchStockQuote, fetchStockHistory, getWatchlist, addWatchlist, deleteWatchlist } from './services/api.ts';
-import { evaluateStrategySignal, DEFAULT_STRATEGY } from './utils/backtestEngine.ts';
+import { evaluateStrategySignal, DEFAULT_STRATEGY, DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS } from './utils/backtestEngine.ts';
+import { loadStrategyFromCookie } from './utils/cookieStorage.ts';
 import { Header } from './components/Header.tsx';
 import { StockSummary } from './components/StockSummary.tsx';
 import { InteractiveChart } from './components/InteractiveChart.tsx';
@@ -30,12 +31,22 @@ export default function App() {
   const [isCandlesLoading, setIsCandlesLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Real-time yfinance sync state
+  const [isRealtimeRefreshing, setIsRealtimeRefreshing] = useState<boolean>(false);
+  const [lastQuoteTime, setLastQuoteTime] = useState<Date | null>(() => new Date());
+
+  // Auto-refresh state (自動更新股價：每 15 秒自動從 yfinance 連線更新)
+  const [isAutoRefresh, setIsAutoRefresh] = useState<boolean>(true);
+  const [autoRefreshCountdown, setAutoRefreshCountdown] = useState<number>(15);
+
   // Watchlist state for fast starring
   const [userWatchlist, setUserWatchlist] = useState<WatchlistItem[]>([]);
 
-  // Modals & Active Strategy
+  // Modals & Active Strategy (初始化優先讀取 Cookie 快取中的自訂量化策略)
   const [isPythonModalOpen, setIsPythonModalOpen] = useState<boolean>(false);
-  const [activeStrategy, setActiveStrategy] = useState<StrategyConfig>(DEFAULT_STRATEGY);
+  const [activeStrategy, setActiveStrategy] = useState<StrategyConfig>(() => {
+    return loadStrategyFromCookie(DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS) || DEFAULT_STRATEGY;
+  });
 
   // Desktop Active View & Mobile Active Tab
   const [desktopActiveView, setDesktopActiveView] = useState<'trading' | 'fundamentals'>('fundamentals');
@@ -86,6 +97,7 @@ export default function App() {
       const data = await fetchStockQuote(sym);
       setQuote(data);
       if (data.name) setStockName(data.name);
+      setLastQuoteTime(new Date());
     } catch (e: any) {
       console.error('loadQuote error:', e);
     } finally {
@@ -113,6 +125,78 @@ export default function App() {
       setIsCandlesLoading(false);
     }
   }, []);
+
+  // Real-time yfinance fetch & refresh function (即時從 yfinance 同步最新報價與2年K線)
+  const handleRefreshRealtime = useCallback(async () => {
+    try {
+      setIsRealtimeRefreshing(true);
+      setErrorMsg(null);
+
+      // 1. 從 yfinance 獲取最新即時股價 (繞過快取)
+      const quotePromise = fetchStockQuote(currentSymbol, true);
+      // 2. 從 yfinance 獲取最新2年K線 (繞過快取並縫合最新盤中價)
+      const twoYearPromise = fetchStockHistory(currentSymbol, '2y', '1d', true);
+      // 3. 若當前圖表週期非 2y 1d，一併獲取對應走勢
+      const activeCandlesPromise =
+        currentRange === '2y' && currentInterval === '1d'
+          ? twoYearPromise
+          : fetchStockHistory(currentSymbol, currentRange, currentInterval, true);
+
+      const [freshQuote, fresh2y, freshActive] = await Promise.all([
+        quotePromise,
+        twoYearPromise,
+        activeCandlesPromise,
+      ]);
+
+      if (freshQuote) {
+        setQuote(freshQuote);
+        if (freshQuote.name) setStockName(freshQuote.name);
+      }
+      if (fresh2y && fresh2y.candles && fresh2y.candles.length > 0) {
+        setTwoYearCandles(fresh2y.candles);
+      }
+      if (freshActive && freshActive.candles && freshActive.candles.length > 0) {
+        setCandles(freshActive.candles);
+      }
+      setLastQuoteTime(new Date());
+    } catch (err) {
+      console.error('Failed to update live price from yfinance:', err);
+    } finally {
+      setIsRealtimeRefreshing(false);
+    }
+  }, [currentSymbol, currentRange, currentInterval]);
+
+  // Auto-refresh interval effect: 每 15 秒自動從 yfinance 連線更新股價
+  useEffect(() => {
+    if (!isAutoRefresh) return;
+
+    const timer = setInterval(() => {
+      // 避免視窗切至背景時無效消耗請求
+      if (typeof document !== 'undefined' && document.hidden) return;
+
+      setAutoRefreshCountdown(prev => {
+        if (prev <= 1) {
+          handleRefreshRealtime();
+          return 15;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isAutoRefresh, handleRefreshRealtime]);
+
+  // 切換開啟／暫停自動更新
+  const handleToggleAutoRefresh = useCallback(() => {
+    setIsAutoRefresh(prev => {
+      const next = !prev;
+      if (next) {
+        setAutoRefreshCountdown(15);
+        handleRefreshRealtime();
+      }
+      return next;
+    });
+  }, [handleRefreshRealtime]);
 
   // Ensure 2-year daily candles are always loaded for backtesting when symbol changes
   useEffect(() => {
@@ -188,7 +272,7 @@ export default function App() {
             }`}
           >
             <Sparkles size={13} className={activeMobileTab === 'fundamentals' ? 'text-amber-300' : 'text-amber-400'} />
-            <span>財報估值</span>
+            <span>AI財報</span>
           </button>
           <button
             onClick={() => {
@@ -248,22 +332,50 @@ export default function App() {
         }`}>
           {/* Real-time Quote Summary Banner */}
           <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-400 flex items-center gap-1.5 font-medium">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-xs text-slate-300 flex items-center gap-1.5 font-medium">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
                 <TrendingUp size={14} className="text-red-400" />
-                即時行情監控面板 · 整合 Yahoo Finance 即時串接
+                <span>即時行情監控面板 · 整合 Yahoo Finance (yfinance) 盤中串接</span>
               </span>
               <div className="flex items-center gap-2">
+                {lastQuoteTime && (
+                  <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
+                    連線時間：{lastQuoteTime.toLocaleTimeString('zh-TW', { hour12: false })}
+                  </span>
+                )}
                 <button
-                  onClick={() => {
-                    loadQuote(currentSymbol);
-                    loadCandles(currentSymbol, currentRange, currentInterval);
-                  }}
-                  className="text-xs text-slate-400 hover:text-white flex items-center gap-1 bg-slate-900 border border-slate-800 hover:border-slate-700 px-2 py-1 rounded-md transition-colors cursor-pointer"
-                  title="重新整理數據"
+                  onClick={handleToggleAutoRefresh}
+                  className={`text-xs flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer shadow-xs font-semibold active:scale-95 border ${
+                    isAutoRefresh
+                      ? 'bg-emerald-950/80 border-emerald-600/70 hover:bg-emerald-900/80 text-emerald-300'
+                      : 'bg-slate-900 border-slate-700 hover:bg-slate-800 text-slate-300'
+                  }`}
+                  title={
+                    isAutoRefresh
+                      ? '自動更新已開啟（每 15 秒自動從 yfinance 連線抓取最新盤中價），點擊可暫停'
+                      : '點擊啟動自動更新（每 15 秒自動從 yfinance 連線抓取最新盤中價）'
+                  }
                 >
-                  <RefreshCw size={12} className={isQuoteLoading ? 'animate-spin' : ''} />
-                  <span className="hidden sm:inline">重新整理</span>
+                  {isAutoRefresh ? (
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+                    </span>
+                  ) : (
+                    <span className="h-2 w-2 rounded-full bg-slate-500"></span>
+                  )}
+                  <RefreshCw size={12} className={isRealtimeRefreshing ? 'animate-spin text-emerald-400' : ''} />
+                  <span>
+                    {isRealtimeRefreshing
+                      ? '自動更新中...'
+                      : isAutoRefresh
+                      ? `自動更新中 (${autoRefreshCountdown}s)`
+                      : '自動更新：已暫停'}
+                  </span>
                 </button>
               </div>
             </div>
@@ -274,6 +386,9 @@ export default function App() {
               isInWatchlist={isInWatchlist}
               onToggleWatchlist={handleToggleWatchlist}
               strategySignal={currentStrategySignal}
+              onRefreshQuote={handleRefreshRealtime}
+              isRefreshingQuote={isRealtimeRefreshing}
+              lastQuoteTime={lastQuoteTime}
             />
           </div>
 
@@ -297,6 +412,10 @@ export default function App() {
               candles={twoYearCandles.length > 0 ? twoYearCandles : candles}
               symbol={currentSymbol}
               stockName={stockName}
+              livePrice={quote?.price}
+              onRefreshRealtime={handleRefreshRealtime}
+              isRefreshingRealtime={isRealtimeRefreshing}
+              lastQuoteTime={lastQuoteTime}
               onOpenPythonModal={(strat) => {
                 if (strat) setActiveStrategy(strat);
                 setIsPythonModalOpen(true);

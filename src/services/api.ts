@@ -2,6 +2,16 @@ import { StockQuote, CandleData, WatchlistItem } from '../types/stock.ts';
 import { TaiwanStockInfo, POPULAR_TAIWAN_STOCKS, resolveTaiwanSymbol } from '../data/taiwanStocks.ts';
 import { generateFallbackCandles, generateFallbackQuote } from './clientStockFallback.ts';
 import { MarketFinancialProgress, calculateMarketFinancialProgress } from '../utils/marketFinancialCalendar.ts';
+import { AiStockFinancialAnalysis } from '../types/aiFinancialAnalysis.ts';
+import {
+  generateAnalystStockAnalysis,
+  generateAllStocksAnalystAnalysis,
+} from '../utils/aiFinancialAnalystEngine.ts';
+import { TAIWAN_TECH_STOCKS_DATABASE } from '../data/techFinancialsData.ts';
+import {
+  saveWatchlistToCookie,
+  loadWatchlistFromCookie,
+} from '../utils/cookieStorage.ts';
 
 function isJsonResponse(res: Response): boolean {
   const contentType = res.headers.get('content-type') || '';
@@ -46,10 +56,11 @@ export async function searchStocks(query: string): Promise<TaiwanStockInfo[]> {
 /**
  * Fetch real-time stock quote from Yahoo Finance
  */
-export async function fetchStockQuote(symbol: string): Promise<StockQuote> {
+export async function fetchStockQuote(symbol: string, refresh: boolean = false): Promise<StockQuote> {
   const resolved = resolveTaiwanSymbol(symbol);
   try {
-    const res = await fetch(`/api/stocks/${encodeURIComponent(resolved.symbol)}/quote`);
+    const refreshQuery = refresh ? `?refresh=true&_t=${Date.now()}` : '';
+    const res = await fetch(`/api/stocks/${encodeURIComponent(resolved.symbol)}/quote${refreshQuery}`);
     if (res.ok && isJsonResponse(res)) {
       return await res.json();
     }
@@ -76,12 +87,14 @@ export interface HistoryResponse {
 export async function fetchStockHistory(
   symbol: string,
   range: string = '2y',
-  interval: string = '1d'
+  interval: string = '1d',
+  refresh: boolean = false
 ): Promise<HistoryResponse> {
   const resolved = resolveTaiwanSymbol(symbol);
   try {
+    const refreshQuery = refresh ? `&refresh=true&_t=${Date.now()}` : '';
     const res = await fetch(
-      `/api/stocks/${encodeURIComponent(resolved.symbol)}/history?range=${range}&interval=${interval}`
+      `/api/stocks/${encodeURIComponent(resolved.symbol)}/history?range=${range}&interval=${interval}${refreshQuery}`
     );
     if (res.ok && isJsonResponse(res)) {
       const data = await res.json();
@@ -280,18 +293,29 @@ const DEFAULT_INITIAL_WATCHLIST: WatchlistItem[] = [
 ];
 
 export async function getWatchlist(): Promise<WatchlistItem[]> {
+  // 1. 優先從 Cookie 讀取自選投資組合股票
+  try {
+    const fromCookie = loadWatchlistFromCookie();
+    if (fromCookie && fromCookie.length > 0) {
+      return fromCookie;
+    }
+  } catch (_) {}
+
+  // 2. 次之從 localStorage 讀取
   try {
     const cached = localStorage.getItem(LOCAL_WATCHLIST_KEY);
     if (cached) {
       const parsed = JSON.parse(cached);
       if (Array.isArray(parsed) && parsed.length > 0) {
+        saveWatchlistToCookie(parsed);
         return parsed;
       }
     }
   } catch (_) {}
 
-  // Save and return default watchlist
+  // 3. 初始預設投資組合並同步至 Cookie
   try {
+    saveWatchlistToCookie(DEFAULT_INITIAL_WATCHLIST);
     localStorage.setItem(LOCAL_WATCHLIST_KEY, JSON.stringify(DEFAULT_INITIAL_WATCHLIST));
   } catch (_) {}
   return DEFAULT_INITIAL_WATCHLIST;
@@ -317,9 +341,9 @@ export async function addWatchlist(item: {
   };
 
   try {
-    const cached = localStorage.getItem(LOCAL_WATCHLIST_KEY);
-    const list: WatchlistItem[] = cached ? JSON.parse(cached) : [...DEFAULT_INITIAL_WATCHLIST];
-    const updated = [localItem, ...list.filter(w => w.symbol !== localItem.symbol)];
+    const existing = await getWatchlist();
+    const updated = [localItem, ...existing.filter(w => w.symbol !== localItem.symbol)];
+    saveWatchlistToCookie(updated);
     localStorage.setItem(LOCAL_WATCHLIST_KEY, JSON.stringify(updated));
   } catch (_) {}
 
@@ -328,12 +352,10 @@ export async function addWatchlist(item: {
 
 export async function deleteWatchlist(id: number): Promise<void> {
   try {
-    const cached = localStorage.getItem(LOCAL_WATCHLIST_KEY);
-    if (cached) {
-      const list: WatchlistItem[] = JSON.parse(cached);
-      const filtered = list.filter(w => w.id !== id);
-      localStorage.setItem(LOCAL_WATCHLIST_KEY, JSON.stringify(filtered));
-    }
+    const existing = await getWatchlist();
+    const filtered = existing.filter(w => w.id !== id);
+    saveWatchlistToCookie(filtered);
+    localStorage.setItem(LOCAL_WATCHLIST_KEY, JSON.stringify(filtered));
   } catch (_) {}
 }
 
@@ -388,3 +410,55 @@ export async function deleteBacktest(id: number): Promise<void> {
     }
   } catch (_) {}
 }
+
+/**
+ * 請求後台 AI Agent 專業財報分析師深度推算單一個股
+ */
+export async function fetchAiStockAnalysis(
+  symbol: string,
+  forceRefresh: boolean = false
+): Promise<AiStockFinancialAnalysis> {
+  try {
+    const res = await fetch('/api/ai/financial-analysis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol, forceRefresh }),
+    });
+    if (res.ok && isJsonResponse(res)) {
+      const data = await res.json();
+      if (data && data.analysis) {
+        return data.analysis;
+      }
+    }
+  } catch (err) {
+    console.warn('fetchAiStockAnalysis network fetch error, falling back to local engine:', err);
+  }
+
+  // 本地備援計算
+  const resolved = resolveTaiwanSymbol(symbol);
+  const stock = TAIWAN_TECH_STOCKS_DATABASE.find(
+    s => s.symbol === resolved.symbol || s.code === resolved.symbol.replace(/\.TW(O)?/, '')
+  ) || TAIWAN_TECH_STOCKS_DATABASE[0];
+  const peers = TAIWAN_TECH_STOCKS_DATABASE.filter(s => s.sector === stock.sector);
+  return generateAnalystStockAnalysis(stock, peers);
+}
+
+/**
+ * 取得全科技股 AI Agent 財報推算字典
+ */
+export async function fetchAiBatchAnalysis(): Promise<Record<string, AiStockFinancialAnalysis>> {
+  try {
+    const res = await fetch('/api/ai/batch-analysis');
+    if (res.ok && isJsonResponse(res)) {
+      const data = await res.json();
+      if (data && typeof data === 'object') {
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn('fetchAiBatchAnalysis network fetch error, falling back to local engine:', err);
+  }
+
+  return generateAllStocksAnalystAnalysis();
+}
+

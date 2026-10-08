@@ -1,6 +1,6 @@
 import React from 'react';
 import { StockQuote, StockStrategySignal } from '../types/stock.ts';
-import { TrendingUp, TrendingDown, Star, ShieldCheck, Sparkles } from 'lucide-react';
+import { TrendingUp, TrendingDown, Star, ShieldCheck, Sparkles, RefreshCw } from 'lucide-react';
 
 interface StockSummaryProps {
   quote: StockQuote | null;
@@ -8,6 +8,9 @@ interface StockSummaryProps {
   isInWatchlist?: boolean;
   onToggleWatchlist?: () => void;
   strategySignal?: StockStrategySignal;
+  onRefreshQuote?: () => Promise<void> | void;
+  isRefreshingQuote?: boolean;
+  lastQuoteTime?: Date | null;
 }
 
 export const StockSummary: React.FC<StockSummaryProps> = ({
@@ -16,6 +19,9 @@ export const StockSummary: React.FC<StockSummaryProps> = ({
   isInWatchlist = false,
   onToggleWatchlist,
   strategySignal,
+  onRefreshQuote,
+  isRefreshingQuote = false,
+  lastQuoteTime,
 }) => {
   if (isLoading || !quote) {
     return (

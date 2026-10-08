@@ -9,6 +9,8 @@ import {
   alignStockQuartersToMarketProgress,
   MarketFinancialProgress,
 } from './marketFinancialCalendar.ts';
+import { AiStockFinancialAnalysis } from '../types/aiFinancialAnalysis.ts';
+import { generateAnalystStockAnalysis } from './aiFinancialAnalystEngine.ts';
 
 export interface FundamentalScores {
   growthScore: number; // 成長性評分 (0-100)
@@ -30,21 +32,22 @@ export interface DynamicValuationResult {
   peBandCheap: number;
   peBandFair: number;
   peBandExpensive: number;
-  finalCheapPrice: number; // 便宜價 (PEG 60% + PE Band 40%)
-  finalFairPrice: number; // 合理價
-  finalExpensivePrice: number; // 昂貴價
-  upsideToFair: number; // 距合理價潛在漲幅 %
-  upsideToExpensive: number; // 距昂貴價潛在空間 %
+  finalCheapPrice: number;
+  finalFairPrice: number;
+  finalExpensivePrice: number;
+  upsideToFair: number;
+  upsideToExpensive: number;
   valuationStance: ValuationStance;
   valuationLabel: string;
   valuationBadgeClass: string;
-  growthPotentialScore: number; // 股價成長能力評分 (0-100)
+  growthPotentialScore: number;
 }
 
 export interface AnalyzedTechStock extends TechStockFinancialData {
   rank: number;
   scores: FundamentalScores;
-  valuation: DynamicValuationResult;
+  aiAnalysis: AiStockFinancialAnalysis; // AI Agent 專業財報分析師深度推算結果
+  valuation?: DynamicValuationResult;
   opportunities: string[];
   risks: string[];
   peerRankInSector: number; // 同產業排名
@@ -368,10 +371,11 @@ export function generateTraderInsights(stock: TechStockFinancialData, scores: Fu
   };
 }
 
-// 11. 全市場掃描、評分、同業對比與 Top 20 篩選 (支援動態財報進度對齊與即時報價注入)
+// 11. 全市場掃描、評分、同業對比與 Top 20 篩選 (整合 AI Agent 專業財報分析師推算)
 export function runTechFundamentalScan(
   priceOverrides?: Record<string, { price: number; change?: number; changePercent?: number }>,
-  customProgress?: MarketFinancialProgress
+  customProgress?: MarketFinancialProgress,
+  customAiBatch?: Record<string, AiStockFinancialAnalysis>
 ): AnalyzedTechStock[] {
   const marketProgress = customProgress || calculateMarketFinancialProgress();
 
@@ -424,11 +428,16 @@ export function runTechFundamentalScan(
     const valuation = calculateDynamicValuation(stock, growthScore, scores.compositeScore);
     const { opportunities, risks } = generateTraderInsights(stock, scores, valuation);
 
+    // AI Agent 專業財報分析師推算注入
+    const peers = TAIWAN_TECH_STOCKS_DATABASE.filter(s => s.sector === stock.sector);
+    const aiAnalysis = customAiBatch?.[stock.symbol] || generateAnalystStockAnalysis(stock, peers);
+
     return {
       ...stock,
       rank: 0,
       scores,
       valuation,
+      aiAnalysis,
       opportunities,
       risks,
       peerRankInSector: 0,
@@ -445,10 +454,10 @@ export function runTechFundamentalScan(
   });
 
   sectorGroups.forEach((stocksInSector: AnalyzedTechStock[]) => {
-    // Sort within sector by Growth Potential Score & Composite Score
+    // Sort within sector by AI Competitiveness Score & Fundamental Score
     stocksInSector.sort((a: AnalyzedTechStock, b: AnalyzedTechStock) => {
-      const scoreA = a.valuation.growthPotentialScore * 0.6 + a.scores.compositeScore * 0.4;
-      const scoreB = b.valuation.growthPotentialScore * 0.6 + b.scores.compositeScore * 0.4;
+      const scoreA = a.aiAnalysis.competitivenessScore * 0.6 + a.scores.compositeScore * 0.4;
+      const scoreB = b.aiAnalysis.competitivenessScore * 0.6 + b.scores.compositeScore * 0.4;
       return scoreB - scoreA;
     });
 
@@ -459,18 +468,10 @@ export function runTechFundamentalScan(
   });
 
   // Step 3: Overall cross-sector ranking to select the Top 20 stocks
-  // Ranking formula: 50% Growth Potential Score + 35% Fundamental Composite Score + 15% Valuation Safety Margin
+  // 依 AI 產業競爭力評分 (50%) + 綜合基本面評分 (50%) 進行排序
   analyzedList.sort((a: AnalyzedTechStock, b: AnalyzedTechStock) => {
-    const rankScoreA =
-      a.valuation.growthPotentialScore * 0.50 +
-      a.scores.compositeScore * 0.35 +
-      (a.valuation.upsideToFair > 0 ? Math.min(20, a.valuation.upsideToFair * 0.5) : 0);
-
-    const rankScoreB =
-      b.valuation.growthPotentialScore * 0.50 +
-      b.scores.compositeScore * 0.35 +
-      (b.valuation.upsideToFair > 0 ? Math.min(20, b.valuation.upsideToFair * 0.5) : 0);
-
+    const rankScoreA = a.aiAnalysis.competitivenessScore * 0.50 + a.scores.compositeScore * 0.50;
+    const rankScoreB = b.aiAnalysis.competitivenessScore * 0.50 + b.scores.compositeScore * 0.50;
     return rankScoreB - rankScoreA;
   });
 

@@ -92,13 +92,28 @@ export const POPULAR_TAIWAN_STOCKS: TaiwanStockInfo[] = [
   { code: '2603', name: '長榮', symbol: '2603.TW', market: 'TWSE', category: '航運' },
   { code: '2609', name: '陽明', symbol: '2609.TW', market: 'TWSE', category: '航運' },
   { code: '2615', name: '萬海', symbol: '2615.TW', market: 'TWSE', category: '航運' },
+  { code: '2618', name: '長榮航', symbol: '2618.TW', market: 'TWSE', category: '航運空運' },
   { code: '2002', name: '中鋼', symbol: '2002.TW', market: 'TWSE', category: '鋼鐵' },
+  { code: '1101', name: '台泥', symbol: '1101.TW', market: 'TWSE', category: '水泥綠能' },
 
   // 金融族群
   { code: '2881', name: '富邦金', symbol: '2881.TW', market: 'TWSE', category: '金融保險' },
   { code: '2882', name: '國泰金', symbol: '2882.TW', market: 'TWSE', category: '金融保險' },
   { code: '2891', name: '中信金', symbol: '2891.TW', market: 'TWSE', category: '金融銀行' },
   { code: '2886', name: '兆豐金', symbol: '2886.TW', market: 'TWSE', category: '金融金控' },
+
+  // 生技醫療 CDMO
+  { code: '6472', name: '保瑞', symbol: '6472.TW', market: 'TWSE', category: '生技醫療' },
+  { code: '1795', name: '美時', symbol: '1795.TW', market: 'TWSE', category: '生技醫療' },
+
+  // 智慧製造 & 機器人自動化
+  { code: '4583', name: '台灣精銳', symbol: '4583.TW', market: 'TWSE', category: '智慧製造', aliases: ['精銳', '減速機'] },
+  { code: '2359', name: '所羅門', symbol: '2359.TW', market: 'TWSE', category: '機器人視覺', aliases: ['所羅門'] },
+  { code: '2049', name: '上銀', symbol: '2049.TW', market: 'TWSE', category: '工業機器人' },
+
+  // 數位遊戲 & 觀光文創
+  { code: '3293', name: '鈊象', symbol: '3293.TWO', market: 'TPEx', category: '數位遊戲', aliases: ['鈊象'] },
+  { code: '2731', name: '雄獅', symbol: '2731.TW', market: 'TWSE', category: '觀光旅遊' },
 
   // 人氣 ETF
   { code: '0050', name: '元大台灣50', symbol: '0050.TW', market: 'TWSE', category: '核心ETF' },

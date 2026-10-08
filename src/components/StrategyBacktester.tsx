@@ -17,6 +17,10 @@ import {
 } from '../utils/backtestEngine.ts';
 import { saveBacktest } from '../services/api.ts';
 import {
+  saveStrategyToCookie,
+  loadStrategyFromCookie,
+} from '../utils/cookieStorage.ts';
+import {
   Play,
   RotateCcw,
   ShieldCheck,
@@ -33,6 +37,7 @@ import {
   Sparkles,
   Zap,
   Info,
+  RefreshCw,
 } from 'lucide-react';
 
 interface StrategyBacktesterProps {
@@ -43,6 +48,10 @@ interface StrategyBacktesterProps {
   onRecordSaved?: () => void;
   onTradesGenerated?: (trades: TradeRecord[]) => void;
   onStrategyChange?: (strategy: StrategyConfig) => void;
+  onRefreshRealtime?: () => Promise<void> | void;
+  isRefreshingRealtime?: boolean;
+  lastQuoteTime?: Date | null;
+  livePrice?: number;
 }
 
 export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
@@ -53,18 +62,43 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
   onRecordSaved,
   onTradesGenerated,
   onStrategyChange,
+  onRefreshRealtime,
+  isRefreshingRealtime = false,
+  lastQuoteTime,
+  livePrice,
 }) => {
-  // Strategy Configuration State
-  const [strategyName, setStrategyName] = useState<string>(DEFAULT_STRATEGY.name);
-  const [entryLogic, setEntryLogic] = useState<'AND' | 'OR'>(DEFAULT_STRATEGY.entryLogic);
-  const [exitLogic, setExitLogic] = useState<'AND' | 'OR'>(DEFAULT_STRATEGY.exitLogic);
-  const [entryConditions, setEntryConditions] = useState<EntryCondition[]>(DEFAULT_ENTRY_CONDITIONS);
-  const [exitConditions, setExitConditions] = useState<ExitCondition[]>(DEFAULT_EXIT_CONDITIONS);
+  // 從 Cookie 快取讀取使用者先前勾選與儲存的策略 (若有)
+  const initialCookieStrategy = useMemo(() => {
+    return loadStrategyFromCookie(DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS);
+  }, []);
+
+  // Strategy Configuration State (初始化優先採用 Cookie 快取)
+  const [strategyName, setStrategyName] = useState<string>(
+    initialCookieStrategy?.name || DEFAULT_STRATEGY.name
+  );
+  const [entryLogic, setEntryLogic] = useState<'AND' | 'OR'>(
+    initialCookieStrategy?.entryLogic || DEFAULT_STRATEGY.entryLogic
+  );
+  const [exitLogic, setExitLogic] = useState<'AND' | 'OR'>(
+    initialCookieStrategy?.exitLogic || DEFAULT_STRATEGY.exitLogic
+  );
+  const [entryConditions, setEntryConditions] = useState<EntryCondition[]>(
+    initialCookieStrategy?.entryConditions || DEFAULT_ENTRY_CONDITIONS
+  );
+  const [exitConditions, setExitConditions] = useState<ExitCondition[]>(
+    initialCookieStrategy?.exitConditions || DEFAULT_EXIT_CONDITIONS
+  );
 
   // 動態風控獨立函式參數 (ATR Multipliers)
-  const [atrInitialStopMultiplier, setAtrInitialStopMultiplier] = useState<number>(2.0); // 2.0x ATR
-  const [atrTrailingStopMultiplier, setAtrTrailingStopMultiplier] = useState<number>(3.0); // 3.0x ATR
-  const [initialCapital, setInitialCapital] = useState<number>(1000000); // 1,000,000 TWD
+  const [atrInitialStopMultiplier, setAtrInitialStopMultiplier] = useState<number>(
+    initialCookieStrategy?.atrInitialStopMultiplier ?? 2.0
+  );
+  const [atrTrailingStopMultiplier, setAtrTrailingStopMultiplier] = useState<number>(
+    initialCookieStrategy?.atrTrailingStopMultiplier ?? 3.0
+  );
+  const [initialCapital, setInitialCapital] = useState<number>(
+    initialCookieStrategy?.initialCapital ?? 1000000
+  );
 
   // Backtest Run State
   const [result, setResult] = useState<BacktestResult | null>(null);
@@ -87,9 +121,10 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
   }, [candles]);
 
   const currentPrice = useMemo(() => {
+    if (livePrice && livePrice > 0) return livePrice;
     if (!candles || candles.length === 0) return 0;
     return candles[candles.length - 1].close;
-  }, [candles]);
+  }, [candles, livePrice]);
 
   // Construct StrategyConfig object
   const currentConfig: StrategyConfig = useMemo(() => ({
@@ -115,8 +150,9 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
     initialCapital,
   ]);
 
-  // Sync strategy config with parent for portfolio/watchlist real-time signal analysis
+  // Sync strategy config with Cookie storage and parent for portfolio/watchlist real-time signal analysis
   useEffect(() => {
+    saveStrategyToCookie(currentConfig);
     if (onStrategyChange) {
       onStrategyChange(currentConfig);
     }
@@ -285,20 +321,51 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col gap-4 p-3.5 sm:p-5 text-slate-200 shadow-xl">
-      {/* 頂部標題 */}
-      <div className="flex flex-col gap-1 border-b border-slate-800/80 pb-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="text-base sm:text-lg font-bold text-slate-100 flex items-center gap-2">
-            <Calculator className="text-blue-400" size={20} />
-            <span>自訂義量化策略回測系統</span>
-          </h2>
-          <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-blue-950/70 border border-blue-800/60 text-blue-300">
-            獨立函式池 + AND/OR 邏輯運算
-          </span>
+      {/* 頂部標題與即時行情更新工具列 */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-base sm:text-lg font-bold text-slate-100 flex items-center gap-2">
+              <Calculator className="text-blue-400" size={20} />
+              <span>自訂義量化策略回測系統</span>
+            </h2>
+            <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-blue-950/70 border border-blue-800/60 text-blue-300">
+              獨立函式池 + AND/OR 邏輯運算
+            </span>
+          </div>
+          <p className="text-xs text-slate-400">
+            標的：<span className="text-slate-100 font-semibold">{stockName} ({symbol})</span>
+            {livePrice ? (
+              <>
+                {' '}· 即時股價：<span className="font-mono text-emerald-400 font-bold">${livePrice}</span>
+              </>
+            ) : null}
+            {' '}· 回測兩年歷史走勢 · 8大進場函式 · 7大出場函式 · ATR動態風控
+          </p>
         </div>
-        <p className="text-xs text-slate-400">
-          標的：<span className="text-slate-100 font-semibold">{stockName} ({symbol})</span> · 回測兩年歷史股價走勢 · 8大進場函式 · 7大出場函式 · ATR動態風控
-        </p>
+
+        {/* 即時 yfinance 更新工具列 */}
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+          {lastQuoteTime && (
+            <span className="text-[11px] font-mono text-slate-400 hidden md:inline">
+              連線時間：{lastQuoteTime.toLocaleTimeString('zh-TW', { hour12: false })}
+            </span>
+          )}
+          <button
+            onClick={async () => {
+              if (onRefreshRealtime) {
+                await onRefreshRealtime();
+              }
+              handleRunBacktest();
+            }}
+            disabled={isRefreshingRealtime}
+            className="w-full sm:w-auto px-3.5 py-2.5 sm:py-1.5 rounded-lg bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md shadow-blue-900/30 transition-all cursor-pointer shrink-0 disabled:opacity-50 active:scale-95"
+            title="立即從 Yahoo Finance (yfinance) 連線更新最新股價並即時重新計算回測"
+          >
+            <RefreshCw size={13} className={isRefreshingRealtime ? 'animate-spin text-white' : ''} />
+            <span>{isRefreshingRealtime ? '連線 yfinance 更新中...' : '即時從 yfinance 更新股價'}</span>
+          </button>
+        </div>
       </div>
 
       {/* 核心策略參數配置區 (8進場 + 7出場 + 動態風控) */}
