@@ -33,6 +33,7 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
   });
   const [showBollinger, setShowBollinger] = useState<boolean>(true);
   const [showTradeMarkers, setShowTradeMarkers] = useState<boolean>(true);
+  const [showIndicatorsDetail, setShowIndicatorsDetail] = useState<boolean>(false);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [dimensions, setDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
@@ -732,6 +733,74 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
     isDragging.current = false;
   };
 
+  // Touch tracking for pinch-to-zoom on mobile devices
+  const touchState = useRef<{
+    initialDistance: number;
+    initialVisibleCount: number;
+    isPinching: boolean;
+  }>({
+    initialDistance: 0,
+    initialVisibleCount: 75,
+    isPinching: false,
+  });
+
+  // Native touch event listeners on canvas to support fluid two-finger pinch zoom on mobile
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const getTouchDistance = (t1: Touch, t2: Touch) => {
+      const dx = t1.clientX - t2.clientX;
+      const dy = t1.clientY - t2.clientY;
+      return Math.hypot(dx, dy);
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDistance(e.touches[0], e.touches[1]);
+        touchState.current = {
+          initialDistance: dist,
+          initialVisibleCount: visibleCount,
+          isPinching: true,
+        };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && touchState.current.isPinching) {
+        e.preventDefault();
+        const currentDist = getTouchDistance(e.touches[0], e.touches[1]);
+        if (touchState.current.initialDistance > 0 && currentDist > 0) {
+          const ratio = currentDist / touchState.current.initialDistance;
+          // When fingers spread outward (ratio > 1), zoom in (visibleCount decreases)
+          // When fingers pinch inward (ratio < 1), zoom out (visibleCount increases)
+          const targetVisible = Math.round(touchState.current.initialVisibleCount / ratio);
+          const boundedVisible = Math.max(15, Math.min(candles.length || 75, targetVisible));
+          setVisibleCount(boundedVisible);
+        }
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        touchState.current.isPinching = false;
+      }
+    };
+
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+    canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+    return () => {
+      canvas.removeEventListener('touchstart', onTouchStart);
+      canvas.removeEventListener('touchmove', onTouchMove);
+      canvas.removeEventListener('touchend', onTouchEnd);
+      canvas.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [visibleCount, candles.length]);
+
   // Native non-passive Wheel listener to reliably preventDefault (prevent window/page scrolling)
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -854,67 +923,83 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
         </div>
       </div>
 
-      {/* Crosshair / Active Bar Unified Info Banner */}
+      {/* Crosshair / Active Bar Minimal Clean Info Banner */}
       {activeHoverCandle && (
-        <div className="px-3 py-1.5 bg-slate-950/95 border-b border-slate-800/60 text-xs font-mono flex flex-wrap items-center gap-x-3 gap-y-1 text-slate-300">
-          <span className="text-slate-400 font-semibold">{activeHoverCandle.time}</span>
-          <div className="flex items-center gap-2">
-            <span>開: <strong className="text-slate-100">{activeHoverCandle.open}</strong></span>
-            <span>高: <strong className="text-red-400">{activeHoverCandle.high}</strong></span>
-            <span>低: <strong className="text-emerald-400">{activeHoverCandle.low}</strong></span>
-            <span>收: <strong className={activeHoverCandle.close >= activeHoverCandle.open ? 'text-red-400' : 'text-emerald-400'}>{activeHoverCandle.close}</strong></span>
-            <span>量: <strong className="text-slate-100">{Math.round(activeHoverCandle.volume / 1000)}張</strong></span>
+        <div className="px-3 py-1.5 bg-slate-950/95 border-b border-slate-800/60 text-xs font-mono flex flex-wrap items-center justify-between gap-2 text-slate-300">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <span className="text-slate-400 font-semibold">{activeHoverCandle.time}</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span>開: <strong className="text-slate-100">{activeHoverCandle.open}</strong></span>
+              <span>高: <strong className="text-red-400">{activeHoverCandle.high}</strong></span>
+              <span>低: <strong className="text-emerald-400">{activeHoverCandle.low}</strong></span>
+              <span>收: <strong className={activeHoverCandle.close >= activeHoverCandle.open ? 'text-red-400' : 'text-emerald-400'}>{activeHoverCandle.close}</strong></span>
+              <span>量: <strong className="text-slate-100">{Math.round(activeHoverCandle.volume / 1000)}張</strong></span>
+            </div>
           </div>
 
-          {/* Bollinger Bands Indicators */}
-          {activeHoverCandle.bbUpper !== undefined && (
-            <div className="flex items-center gap-1.5 border-l border-slate-700 pl-2 text-purple-400">
-              <span>布林上: {activeHoverCandle.bbUpper}</span>
-              <span>下: {activeHoverCandle.bbLower}</span>
-              {activeHoverCandle.bbWidth !== undefined && (
-                <span className="text-[10px] text-purple-300 bg-purple-950/70 px-1 rounded border border-purple-800/40">
-                  帶寬: {activeHoverCandle.bbWidth}%
-                </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowIndicatorsDetail(prev => !prev)}
+              className={`text-[10px] px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                showIndicatorsDetail
+                  ? 'bg-blue-600/20 border-blue-500/50 text-blue-300'
+                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {showIndicatorsDetail ? '簡化數據' : '展開指標數值'}
+            </button>
+          </div>
+
+          {/* Optional Detailed Indicators (cleanly toggled, keeps chart clean by default) */}
+          {showIndicatorsDetail && (
+            <div className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 border-t border-slate-800/50 text-[11px] text-slate-400">
+              {activeHoverCandle.bbUpper !== undefined && (
+                <div className="flex items-center gap-1.5 text-purple-400">
+                  <span>布林上: {activeHoverCandle.bbUpper}</span>
+                  <span>下: {activeHoverCandle.bbLower}</span>
+                  {activeHoverCandle.bbWidth !== undefined && (
+                    <span className="text-[10px] text-purple-300 bg-purple-950/70 px-1 rounded border border-purple-800/40">
+                      帶寬: {activeHoverCandle.bbWidth}%
+                    </span>
+                  )}
+                </div>
               )}
-            </div>
-          )}
 
-          {/* KD Indicators */}
-          {activeHoverCandle.k !== undefined && activeHoverCandle.d !== undefined && (
-            <div className="flex items-center gap-1.5 border-l border-slate-700 pl-2">
-              <span className="text-red-400">K: {activeHoverCandle.k}</span>
-              <span className="text-sky-400">D: {activeHoverCandle.d}</span>
-              {activeHoverCandle.k > activeHoverCandle.d ? (
-                <span className="text-[10px] text-red-400 bg-red-950/70 px-1 rounded border border-red-800/40">多方金叉</span>
-              ) : (
-                <span className="text-[10px] text-emerald-400 bg-emerald-950/70 px-1 rounded border border-emerald-800/40">空方死叉</span>
+              {activeHoverCandle.k !== undefined && activeHoverCandle.d !== undefined && (
+                <div className="flex items-center gap-1.5 border-l border-slate-700 pl-2">
+                  <span className="text-red-400">K: {activeHoverCandle.k}</span>
+                  <span className="text-sky-400">D: {activeHoverCandle.d}</span>
+                  {activeHoverCandle.k > activeHoverCandle.d ? (
+                    <span className="text-[10px] text-red-400 bg-red-950/70 px-1 rounded border border-red-800/40">多方金叉</span>
+                  ) : (
+                    <span className="text-[10px] text-emerald-400 bg-emerald-950/70 px-1 rounded border border-emerald-800/40">空方死叉</span>
+                  )}
+                </div>
               )}
-            </div>
-          )}
 
-          {/* MACD Indicators */}
-          {activeHoverCandle.dif !== undefined && (
-            <div className="flex items-center gap-1.5 border-l border-slate-700 pl-2">
-              <span className="text-orange-400">DIF: {activeHoverCandle.dif}</span>
-              <span className="text-sky-400">MACD: {activeHoverCandle.macd}</span>
-              <span className={activeHoverCandle.osc && activeHoverCandle.osc >= 0 ? 'text-red-400' : 'text-emerald-400'}>
-                OSC: {activeHoverCandle.osc}
-              </span>
-            </div>
-          )}
+              {activeHoverCandle.dif !== undefined && (
+                <div className="flex items-center gap-1.5 border-l border-slate-700 pl-2">
+                  <span className="text-orange-400">DIF: {activeHoverCandle.dif}</span>
+                  <span className="text-sky-400">MACD: {activeHoverCandle.macd}</span>
+                  <span className={activeHoverCandle.osc && activeHoverCandle.osc >= 0 ? 'text-red-400' : 'text-emerald-400'}>
+                    OSC: {activeHoverCandle.osc}
+                  </span>
+                </div>
+              )}
 
-          {/* RSI Indicator */}
-          {activeHoverCandle.rsi !== undefined && (
-            <div className="flex items-center gap-1.5 border-l border-slate-700 pl-2">
-              <span className={activeHoverCandle.rsi >= 70 ? 'text-red-400 font-bold' : activeHoverCandle.rsi <= 30 ? 'text-emerald-400 font-bold' : 'text-slate-300'}>
-                RSI: {activeHoverCandle.rsi}
-              </span>
+              {activeHoverCandle.rsi !== undefined && (
+                <div className="flex items-center gap-1.5 border-l border-slate-700 pl-2">
+                  <span className={activeHoverCandle.rsi >= 70 ? 'text-red-400 font-bold' : activeHoverCandle.rsi <= 30 ? 'text-emerald-400 font-bold' : 'text-slate-300'}>
+                    RSI: {activeHoverCandle.rsi}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
           {/* Hovered Candle Strategy Signal Banner */}
           {hoverTradeInfo?.entryTrade && (
-            <div className="flex items-center gap-1.5 bg-red-950/80 border border-red-700/80 text-red-200 px-2 py-0.5 rounded text-[11px] font-sans">
+            <div className="flex items-center gap-1.5 bg-red-950/80 border border-red-700/80 text-red-200 px-2 py-0.5 rounded text-[11px] font-sans mt-1">
               <span className="font-bold text-red-300">🎯 策略進場買進</span>
               <span>成本: ${hoverTradeInfo.entryTrade.entryPrice}</span>
               <span>部位: {hoverTradeInfo.entryTrade.shares.toLocaleString()}股</span>
@@ -928,7 +1013,7 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
 
           {hoverTradeInfo?.exitTrade && (
             <div
-              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-sans border ${
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-sans border mt-1 ${
                 hoverTradeInfo.exitTrade.isWin
                   ? 'bg-emerald-950/80 border-emerald-700/80 text-emerald-200'
                   : 'bg-rose-950/80 border-rose-700/80 text-rose-200'

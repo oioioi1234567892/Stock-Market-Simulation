@@ -68,7 +68,17 @@ export interface AiStockFinancialAnalysis {
   futureRisks: string[]; // 2-3項明確具體之未來風險因子
   riskWarningSign: string; // 操盤手核心監控警戒指標
 
-  // 7. 操盤手綜合研判結論 (Trader Stance & Recommendation)
+  // 7. 最新法說會精華與未來展望 (Latest Investor Conference Highlights & Guidance)
+  earningsCallSummary?: string; // 最新法說會管理階層重點報告
+  earningsCallGuidance?: string; // 未來季/年度財測展望指引
+  earningsCallDate?: string; // 最近法說會舉辦季度或日期 (如 2026Q3 法說會)
+
+  // 8. 全球宏觀市場方向結合 (Global Market Macro Context & Opportunities)
+  globalMarketContext?: string; // 結合美股科技巨頭資本支出、聯準會利率、地緣政治之全球市場動向
+  futureOpportunities?: string[]; // 未來主要成長機遇 (AI、邊緣運算、全球供應鏈移轉等)
+
+  // 9. 操盤手綜合研判結論與總分 (Trader Stance & Recommendation)
+  overallScore?: number; // 綜合評分 (0-100)
   traderVerdict: AiTraderVerdict;
   traderVerdictLabel: string;
   traderVerdictBadgeClass: string;

@@ -19,6 +19,8 @@ import {
   CheckCircle2,
   Cpu,
   Layers,
+  FileSpreadsheet,
+  Compass,
 } from 'lucide-react';
 
 interface AiFinancialReportModalProps {
@@ -317,12 +319,64 @@ export const AiFinancialReportModal: React.FC<AiFinancialReportModalProps> = ({
             </p>
           </div>
 
-          {/* Section 6: 未來三大關鍵風險雷達 (Future Key Risks) */}
+          {/* Section 6: 最新法說會精華與未來展望 (Earnings Call Highlights & Guidance) */}
+          <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3.5 sm:p-4 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+              <div className="flex items-center gap-1.5 font-bold text-indigo-300 text-xs sm:text-sm">
+                <FileSpreadsheet size={15} className="text-indigo-400" />
+                <span>6. 最新法說會核心要點與財測展望 (Earnings Call & Guidance)</span>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/60 font-mono">
+                {stock.earningsCallDate || '最新季度法說會'}
+              </span>
+            </div>
+            <div className="bg-slate-900/70 p-3 rounded-lg border border-slate-800/80 text-xs text-slate-200 leading-relaxed">
+              <strong className="text-indigo-300 block mb-1">🎙️ 管理階層營運重點回顧：</strong>
+              {stock.earningsCallSummary || `${stock.name}管理階層於法說會指出，高階產能供不應求，在手訂單能見度充沛，產能稼動率維持高檔運行。`}
+            </div>
+            <div className="bg-slate-900/70 p-3 rounded-lg border border-slate-800/80 text-xs text-slate-200 leading-relaxed">
+              <strong className="text-emerald-300 block mb-1">📈 未來季度財測指引展望：</strong>
+              {stock.earningsCallGuidance || `展望後續季度，營收預期持續季增，毛利率受惠產品組合與技術良率精進將守穩高檔，全年展望維持強勁雙位數擴張。`}
+            </div>
+          </div>
+
+          {/* Section 7: 全球宏觀市場方向結合與未來機遇 (Global Macro Context & Opportunities) */}
+          <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3.5 sm:p-4 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+              <div className="flex items-center gap-1.5 font-bold text-cyan-300 text-xs sm:text-sm">
+                <Compass size={15} className="text-cyan-400" />
+                <span>7. 結合全球市場宏觀方向・核心未來機遇 (Global Macro & Opportunities)</span>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-800/60 font-mono">
+                全球市場方向
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/60">
+              {stock.globalMarketContext || `美股四大科技巨頭資本支出持續上修，聯準會降息循環降低科技融資成本。台灣關鍵供應鏈具備全球不可替代的製造與算力核心樞紐地位。`}
+            </p>
+            {stock.futureOpportunities && stock.futureOpportunities.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[11px] font-bold text-cyan-400 block font-mono">🌟 操盤手戰略成長機遇：</span>
+                <ul className="space-y-1 text-xs text-slate-300">
+                  {stock.futureOpportunities.map((opp, idx) => (
+                    <li key={idx} className="flex items-start gap-2 leading-relaxed">
+                      <span className="px-1.5 py-0.2 rounded bg-cyan-950/70 text-cyan-300 font-mono text-[10px] font-bold shrink-0 mt-0.5 border border-cyan-800/50">
+                        OP-{idx + 1}
+                      </span>
+                      <span>{opp}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {/* Section 8: 未來三大關鍵風險雷達 (Future Key Risks) */}
           <div className="bg-rose-950/20 border border-rose-900/40 rounded-xl p-3.5 sm:p-4 flex flex-col gap-2.5">
             <div className="flex items-center justify-between border-b border-rose-900/40 pb-2">
               <div className="flex items-center gap-1.5 font-bold text-rose-300 text-xs sm:text-sm">
                 <AlertTriangle size={15} className="text-rose-400" />
-                <span>6. 操盤手核心監控・未來三大實質風險 (Downside Risks)</span>
+                <span>8. 操盤手核心監控・未來實質風險 (Downside Risks)</span>
               </div>
               <span className="text-[10px] px-2 py-0.5 rounded bg-rose-900/40 text-rose-300 border border-rose-800/60 font-mono">
                 風險警訊

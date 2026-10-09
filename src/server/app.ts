@@ -636,8 +636,9 @@ ${peerNames}
 3. 營收增長率 (動能趨勢與可持續性)
 4. 負債健康度 (負債比率、自由現金流、財務安全性)
 5. 產業橫向競爭力判斷 (與同業對比之護城河、產能定價權、競爭力評級: TOP_TIER 或 STRONG_MOAT 或 PEER_AVERAGE 或 LAGGING)
-6. 未來三大具體關鍵風險 (實質風險因子供操盤手監控)
-7. 操盤手綜合立場 (CORE_ALLOCATION 或 BUY_ON_DIP 或 NEUTRAL_WATCH 或 DEFENSIVE_AVOID)
+6. 最新法說會精華與展望 (查找並研判該公司最新法說會管理階層重大重點報告與營收/毛利指引)
+7. 結合目前全球市場方向之機會與風險 (結合美股四大科技巨頭資本支出、聯準會降息與全球宏觀趨勢，闡明未來核心機遇與下行風險)
+8. 操盤手綜合立場 (CORE_ALLOCATION 或 BUY_ON_DIP 或 NEUTRAL_WATCH 或 DEFENSIVE_AVOID) 與綜合評分 (0-100)
 
 請只輸出以下合法 JSON 物件，不要有 markdown 以外的雜訊：
 {
@@ -654,8 +655,14 @@ ${peerNames}
   "debtHealthScore": 85,
   "debtHealthStatus": "EXCELLENT" | "HEALTHY" | "MODERATE" | "CAUTION",
   "debtHealthAnalysis": "2-3句深度解析負債與現金流健康度",
+  "earningsCallSummary": "最新法說會管理階層重點報告",
+  "earningsCallGuidance": "未來季/年度財測展望指引",
+  "earningsCallDate": "2026 最新季度法人說明會",
+  "globalMarketContext": "結合全球科技巨頭CapEx與總經趨勢之市場動向",
+  "futureOpportunities": ["機遇1具體描述", "機遇2具體描述", "機遇3具體描述"],
   "futureRisks": ["風險1具體描述", "風險2具體描述", "風險3具體描述"],
   "riskWarningSign": "操盤手核心監控警戒指標",
+  "overallScore": 88,
   "traderVerdict": "CORE_ALLOCATION" | "BUY_ON_DIP" | "NEUTRAL_WATCH" | "DEFENSIVE_AVOID",
   "traderVerdictLabel": "核心強勢配置 或 逢低戰略布局 等",
   "traderSummary": "2-3句頂級操盤手實戰總結建議"
@@ -692,8 +699,14 @@ ${peerNames}
         debtHealthScore: Number(parsed.debtHealthScore) || baseAnalysis.debtHealthScore,
         debtHealthStatus: parsed.debtHealthStatus || baseAnalysis.debtHealthStatus,
         debtHealthAnalysis: parsed.debtHealthAnalysis || baseAnalysis.debtHealthAnalysis,
+        earningsCallSummary: parsed.earningsCallSummary || baseAnalysis.earningsCallSummary,
+        earningsCallGuidance: parsed.earningsCallGuidance || baseAnalysis.earningsCallGuidance,
+        earningsCallDate: parsed.earningsCallDate || baseAnalysis.earningsCallDate,
+        globalMarketContext: parsed.globalMarketContext || baseAnalysis.globalMarketContext,
+        futureOpportunities: Array.isArray(parsed.futureOpportunities) && parsed.futureOpportunities.length > 0 ? parsed.futureOpportunities : baseAnalysis.futureOpportunities,
         futureRisks: Array.isArray(parsed.futureRisks) && parsed.futureRisks.length > 0 ? parsed.futureRisks : baseAnalysis.futureRisks,
         riskWarningSign: parsed.riskWarningSign || baseAnalysis.riskWarningSign,
+        overallScore: Number(parsed.overallScore) || baseAnalysis.overallScore || baseAnalysis.competitivenessScore,
         traderVerdict: parsed.traderVerdict || baseAnalysis.traderVerdict,
         traderVerdictLabel: parsed.traderVerdictLabel || baseAnalysis.traderVerdictLabel,
         traderSummary: parsed.traderSummary || baseAnalysis.traderSummary,

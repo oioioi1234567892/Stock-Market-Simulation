@@ -43,6 +43,22 @@ export interface DynamicValuationResult {
   growthPotentialScore: number;
 }
 
+export interface SectorPerformance {
+  sector: TechSector;
+  avgChangePercent: number;
+  avgGrowthRate: number;
+  avgGrossMargin: number;
+  avgRoe: number;
+  score: number;
+  stockCount: number;
+  leaderStock: string;
+}
+
+export interface TechFundamentalScanResult {
+  topSectors: SectorPerformance[];
+  top20: AnalyzedTechStock[];
+}
+
 export interface AnalyzedTechStock extends TechStockFinancialData {
   rank: number;
   scores: FundamentalScores;
@@ -52,6 +68,7 @@ export interface AnalyzedTechStock extends TechStockFinancialData {
   risks: string[];
   peerRankInSector: number; // 同產業排名
   peerCountInSector: number; // 同產業檔數
+  isTopSector?: boolean; // 是否屬於最佳5大產業板塊
 }
 
 // 1. 成長性評分 (Growth Score, 0 - 100)
@@ -445,7 +462,7 @@ export function runTechFundamentalScan(
     };
   });
 
-  // Step 2: Peer comparison within each sector group
+  // Step 2: Peer comparison within each sector group & compute Sector Performance
   const sectorGroups = new Map<TechSector, AnalyzedTechStock[]>();
   analyzedList.forEach((stock: AnalyzedTechStock) => {
     const list = sectorGroups.get(stock.sector) || [];
@@ -453,7 +470,9 @@ export function runTechFundamentalScan(
     sectorGroups.set(stock.sector, list);
   });
 
-  sectorGroups.forEach((stocksInSector: AnalyzedTechStock[]) => {
+  const sectorPerformances: SectorPerformance[] = [];
+
+  sectorGroups.forEach((stocksInSector: AnalyzedTechStock[], sectorName: TechSector) => {
     // Sort within sector by AI Competitiveness Score & Fundamental Score
     stocksInSector.sort((a: AnalyzedTechStock, b: AnalyzedTechStock) => {
       const scoreA = a.aiAnalysis.competitivenessScore * 0.6 + a.scores.compositeScore * 0.4;
@@ -465,21 +484,130 @@ export function runTechFundamentalScan(
       s.peerRankInSector = idx + 1;
       s.peerCountInSector = stocksInSector.length;
     });
+
+    // 計算該板塊綜合市場表現分 (漲跌幅動能 35% + 預期獲利成長率 25% + 平均毛利率 20% + 平均ROE 20%)
+    const count = stocksInSector.length || 1;
+    const avgChange = stocksInSector.reduce((sum, s) => sum + s.changePercent, 0) / count;
+    const avgGrowth = stocksInSector.reduce((sum, s) => sum + s.expectedGrowthRate, 0) / count;
+    const avgGM = stocksInSector.reduce((sum, s) => sum + (s.quarters[0]?.grossMargin ?? 0), 0) / count;
+    const avgRoe = stocksInSector.reduce((sum, s) => sum + (s.quarters[0]?.roe ?? 0), 0) / count;
+
+    // 板塊綜合評分 (0-100)
+    const sectorScore = Math.round(
+      Math.min(35, Math.max(0, (avgChange + 5) * 3.5)) +
+      Math.min(25, Math.max(0, avgGrowth * 0.8)) +
+      Math.min(20, Math.max(0, avgGM * 0.4)) +
+      Math.min(20, Math.max(0, avgRoe * 0.7))
+    );
+
+    sectorPerformances.push({
+      sector: sectorName,
+      avgChangePercent: Number(avgChange.toFixed(2)),
+      avgGrowthRate: Number(avgGrowth.toFixed(1)),
+      avgGrossMargin: Number(avgGM.toFixed(1)),
+      avgRoe: Number(avgRoe.toFixed(1)),
+      score: sectorScore,
+      stockCount: count,
+      leaderStock: stocksInSector[0]?.name || '',
+    });
   });
 
-  // Step 3: Overall cross-sector ranking to select the Top 20 stocks
-  // 依 AI 產業競爭力評分 (50%) + 綜合基本面評分 (50%) 進行排序
-  analyzedList.sort((a: AnalyzedTechStock, b: AnalyzedTechStock) => {
-    const rankScoreA = a.aiAnalysis.competitivenessScore * 0.50 + a.scores.compositeScore * 0.50;
-    const rankScoreB = b.aiAnalysis.competitivenessScore * 0.50 + b.scores.compositeScore * 0.50;
-    return rankScoreB - rankScoreA;
+  // 1. 找出在股市中表現最佳的 5 個產業板塊
+  sectorPerformances.sort((a, b) => b.score - a.score);
+  const top5Sectors = sectorPerformances.slice(0, 5);
+  const top5SectorNames = new Set(top5Sectors.map(s => s.sector));
+
+  // 標註哪些個股屬於 Top 5 板塊
+  analyzedList.forEach(s => {
+    s.isTopSector = top5SectorNames.has(s.sector);
   });
 
-  // Top 20 selection with global ranking
-  const top20: AnalyzedTechStock[] = analyzedList.slice(0, 20).map((stock: AnalyzedTechStock, idx: number) => ({
-    ...stock,
-    rank: idx + 1,
-  }));
+  // Step 3: 從五個產業板塊中進行同業比較，選出 20 檔具有「高成長、產業護城河、負債良好」的公司
+  // 篩選屬於 Top 5 板塊的公司
+  const candidatesInTopSectors = analyzedList.filter(s => s.isTopSector);
+
+  // 綜合評分權重：
+  // 護城河/競爭力 (35%) + 獲利能力 (25%) + 成長性 (20%) + 負債健康度 (20%)
+  candidatesInTopSectors.sort((a: AnalyzedTechStock, b: AnalyzedTechStock) => {
+    const scoreA =
+      (a.aiAnalysis?.competitivenessScore ?? 75) * 0.35 +
+      (a.aiAnalysis?.profitabilityScore ?? 75) * 0.25 +
+      (a.aiAnalysis?.revenueGrowthScore ?? 70) * 0.20 +
+      (a.aiAnalysis?.debtHealthScore ?? 70) * 0.20;
+
+    const scoreB =
+      (b.aiAnalysis?.competitivenessScore ?? 75) * 0.35 +
+      (b.aiAnalysis?.profitabilityScore ?? 75) * 0.25 +
+      (b.aiAnalysis?.revenueGrowthScore ?? 70) * 0.20 +
+      (b.aiAnalysis?.debtHealthScore ?? 70) * 0.20;
+
+    return scoreB - scoreA;
+  });
+
+  // 取出前 20 檔公司 (若候選不足 20 檔則依序從其他優質板塊補齊，確保永遠精準產出 20 檔)
+  let selected20 = candidatesInTopSectors.slice(0, 20);
+  if (selected20.length < 20) {
+    const remaining = analyzedList
+      .filter(s => !selected20.some(sel => sel.symbol === s.symbol))
+      .sort((a, b) => (b.aiAnalysis?.competitivenessScore ?? 0) - (a.aiAnalysis?.competitivenessScore ?? 0));
+    selected20 = [...selected20, ...remaining.slice(0, 20 - selected20.length)];
+  }
+
+  // 賦予全域排名與綜合總分
+  const top20: AnalyzedTechStock[] = selected20.map((stock: AnalyzedTechStock, idx: number) => {
+    const overall = Math.round(
+      (stock.aiAnalysis?.competitivenessScore ?? 75) * 0.35 +
+      (stock.aiAnalysis?.profitabilityScore ?? 75) * 0.25 +
+      (stock.aiAnalysis?.revenueGrowthScore ?? 70) * 0.20 +
+      (stock.aiAnalysis?.debtHealthScore ?? 70) * 0.20
+    );
+    if (stock.aiAnalysis) {
+      stock.aiAnalysis.overallScore = overall;
+    }
+    return {
+      ...stock,
+      rank: idx + 1,
+    };
+  });
 
   return top20;
+}
+
+export function getTop5SectorsFromAnalyzed(analyzedList: AnalyzedTechStock[]): SectorPerformance[] {
+  const sectorGroups = new Map<TechSector, AnalyzedTechStock[]>();
+  analyzedList.forEach(stock => {
+    const list = sectorGroups.get(stock.sector) || [];
+    list.push(stock);
+    sectorGroups.set(stock.sector, list);
+  });
+
+  const performances: SectorPerformance[] = [];
+  sectorGroups.forEach((stocks, sectorName) => {
+    const count = stocks.length || 1;
+    const avgChange = stocks.reduce((sum, s) => sum + s.changePercent, 0) / count;
+    const avgGrowth = stocks.reduce((sum, s) => sum + s.expectedGrowthRate, 0) / count;
+    const avgGM = stocks.reduce((sum, s) => sum + (s.quarters[0]?.grossMargin ?? 0), 0) / count;
+    const avgRoe = stocks.reduce((sum, s) => sum + (s.quarters[0]?.roe ?? 0), 0) / count;
+
+    const score = Math.round(
+      Math.min(35, Math.max(0, (avgChange + 5) * 3.5)) +
+      Math.min(25, Math.max(0, avgGrowth * 0.8)) +
+      Math.min(20, Math.max(0, avgGM * 0.4)) +
+      Math.min(20, Math.max(0, avgRoe * 0.7))
+    );
+
+    performances.push({
+      sector: sectorName,
+      avgChangePercent: Number(avgChange.toFixed(2)),
+      avgGrowthRate: Number(avgGrowth.toFixed(1)),
+      avgGrossMargin: Number(avgGM.toFixed(1)),
+      avgRoe: Number(avgRoe.toFixed(1)),
+      score,
+      stockCount: count,
+      leaderStock: stocks[0]?.name || '',
+    });
+  });
+
+  performances.sort((a, b) => b.score - a.score);
+  return performances.slice(0, 5);
 }

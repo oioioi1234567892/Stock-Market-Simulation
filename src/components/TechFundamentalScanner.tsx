@@ -7,6 +7,8 @@ import {
 import {
   AnalyzedTechStock,
   runTechFundamentalScan,
+  SectorPerformance,
+  getTop5SectorsFromAnalyzed,
 } from '../utils/fundamentalAnalysisEngine.ts';
 import {
   fetchBatchQuotes,
@@ -133,6 +135,11 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
   const [analyzedList, setAnalyzedList] = useState<AnalyzedTechStock[]>(() =>
     runTechFundamentalScan(undefined, calculateMarketFinancialProgress())
   );
+
+  // Top 5 最佳產業板塊
+  const top5Sectors = useMemo<SectorPerformance[]>(() => {
+    return getTop5SectorsFromAnalyzed(analyzedList);
+  }, [analyzedList]);
 
   // Automatic real-time financial calendar, quote & AI batch analysis on mount & polling
   useEffect(() => {
@@ -379,17 +386,33 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
     };
   }, [analyzedList]);
 
-  // Sector list for tabs
-  const sectors: { id: TechSector | 'ALL'; label: string; count: number }[] = [
-    { id: 'ALL', label: '全部推薦 (Top 20)', count: analyzedList.length },
-    { id: '晶圓代工', label: '晶圓代工', count: analyzedList.filter(s => s.sector === '晶圓代工').length },
-    { id: '先進封裝', label: '先進封裝CoWoS', count: analyzedList.filter(s => s.sector === '先進封裝').length },
-    { id: 'IC設計/晶片', label: 'IC與AI晶片', count: analyzedList.filter(s => s.sector === 'IC設計/晶片').length },
-    { id: 'AI伺服器/代工', label: 'AI伺服器/代工', count: analyzedList.filter(s => s.sector === 'AI伺服器/代工').length },
-    { id: '散熱模組', label: '散熱模組', count: analyzedList.filter(s => s.sector === '散熱模組').length },
-    { id: '電源/BBU', label: '電源/綠能BBU', count: analyzedList.filter(s => s.sector === '電源/BBU').length },
-    { id: 'ABF載板/PCB', label: 'ABF載板/PCB', count: analyzedList.filter(s => s.sector === 'ABF載板/PCB').length },
-  ];
+  // Sector list for tabs (包含全部推薦與 5 大最佳產業板塊)
+  const sectors: { id: TechSector | 'ALL'; label: string; count: number }[] = useMemo(() => {
+    const list: { id: TechSector | 'ALL'; label: string; count: number }[] = [
+      { id: 'ALL', label: '🌟 全部精選 20 檔', count: analyzedList.length },
+    ];
+
+    top5Sectors.forEach(sec => {
+      list.push({
+        id: sec.sector,
+        label: `${sec.sector} (前5強)`,
+        count: analyzedList.filter(s => s.sector === sec.sector).length,
+      });
+    });
+
+    // 補齊其他有入選 20 檔的板塊
+    const topSectorSet = new Set(top5Sectors.map(s => s.sector));
+    const otherSectorsIn20 = Array.from(new Set(analyzedList.map(s => s.sector))).filter(sec => !topSectorSet.has(sec));
+    otherSectorsIn20.forEach(sec => {
+      list.push({
+        id: sec,
+        label: sec,
+        count: analyzedList.filter(s => s.sector === sec).length,
+      });
+    });
+
+    return list;
+  }, [analyzedList, top5Sectors]);
 
   return (
     <div className="flex flex-col gap-4 w-full">
@@ -420,10 +443,10 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
               </span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-slate-100 tracking-tight flex items-center gap-2">
-              <span>台灣科技股 7 大板塊・AI 深度財報競爭力診斷 (Top 20)</span>
+              <span>台股 AI 精選個股・5 大最佳板塊 20 檔核心標的</span>
             </h2>
             <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
-              由後台 <strong className="text-blue-300">AI Agent 專業財報分析師</strong> 深度推算全體科技股之連續 8 季財報序列。全面剖析<strong className="text-emerald-300">獲利能力</strong>、<strong className="text-cyan-300">資產報酬率 (ROA/ROE/ROIC)</strong>、<strong className="text-amber-300">營收增長率</strong>與<strong className="text-blue-300">負債健康度</strong>，橫向對比相關產業同儕評判技術護城河與未來三大核心下行風險，即時輔助操盤決策。
+              由後台 <strong className="text-blue-300">AI Agent 專業分析師</strong> 在股市中撈取<strong className="text-amber-300">表現最佳的 5 個產業板塊</strong>，並利用 yfinance 深度抓取各公司財報進行同業橫向比較。精選出 20 檔兼具<strong className="text-emerald-300">高成長性</strong>、<strong className="text-purple-300">產業護城河</strong>與<strong className="text-cyan-300">負債健康</strong>的優質公司；結合最新法說會展望與全球宏觀市場方向，即時評估未來風險與機會。
             </p>
           </div>
 
@@ -453,10 +476,10 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
           <div className="mt-4 pt-3 border-t border-slate-800/80">
             <div className="flex items-center justify-between text-xs text-slate-300 font-mono mb-1.5">
               <span>
-                {scanStep === 1 && '步驟 1/4: 檢索台股科技股 7 大類群最近 8 季度完整營收、毛利與獲利序列...'}
-                {scanStep === 2 && '步驟 2/4: AI Agent 深入精算獲利能力 (毛利/營益/EPS)、資產報酬率 (ROA/ROE/ROIC)...'}
-                {scanStep === 3 && '步驟 3/4: 橫向對比同板塊競爭對手，精準判定技術護城河、市占定價權與競爭力評級...'}
-                {scanStep === 4 && '步驟 4/4: 診斷負債健康度與現金流抗風險力，排查未來三大實質下行風險...'}
+                {scanStep === 1 && '步驟 1/4: AI Agent 在後台撈取股市中表現最佳的 5 個產業板塊...'}
+                {scanStep === 2 && '步驟 2/4: 從最佳板塊中透過 yfinance 檢索各公司完整 8 季財報數據...'}
+                {scanStep === 3 && '步驟 3/4: 進行同業橫向比較，篩選出 20 檔具備高成長、護城河與負債良好之公司...'}
+                {scanStep === 4 && '步驟 4/4: 進行綜合評分，查找最新法說會展望，結合全球市場方向研判風險與機會...'}
               </span>
               <span className="font-bold text-blue-400">{scanProgress}%</span>
             </div>
@@ -470,6 +493,71 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
         )}
       </div>
 
+      {/* 最佳 5 大產業板塊精選看板 (AI Agent 撈取之股市最佳板塊) */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap border-b border-slate-800 pb-2.5">
+          <div className="flex items-center gap-2">
+            <span className="p-1 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              <Flame size={16} />
+            </span>
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                <span>台股表現最佳 5 大產業板塊</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-600/20 text-blue-300 border border-blue-500/40 font-mono">
+                  AI Agent 智慧甄選
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                綜合動能漲跌幅、毛利壁壘、ROE資本效益與預期成長率加權推算，前 5 強賽道龍頭領銜：
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
+            板塊深度財報校準完畢
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+          {top5Sectors.map((sec, idx) => (
+            <div
+              key={sec.sector}
+              onClick={() => setSelectedSector(sec.sector)}
+              className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
+                selectedSector === sec.sector
+                  ? 'bg-blue-950/60 border-blue-500 shadow-md ring-1 ring-blue-500/50'
+                  : 'bg-slate-950/70 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="flex items-center gap-1.5">
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold font-mono ${
+                    idx === 0 ? 'bg-amber-500 text-slate-950' : idx === 1 ? 'bg-slate-300 text-slate-950' : 'bg-slate-800 text-slate-300'
+                  }`}>
+                    {idx + 1}
+                  </span>
+                  <span className="font-bold text-white text-xs">{sec.sector}</span>
+                </span>
+                <span className="text-[10px] font-mono font-bold text-amber-300 bg-amber-950/80 px-1.5 py-0.2 rounded border border-amber-800/60">
+                  {sec.score}分
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1 text-[10px] font-mono py-1 text-slate-400">
+                <div>漲幅: <strong className={sec.avgChangePercent >= 0 ? 'text-rose-400' : 'text-emerald-400'}>{sec.avgChangePercent > 0 ? '+' : ''}{sec.avgChangePercent}%</strong></div>
+                <div>成長: <strong className="text-blue-300">+{sec.avgGrowthRate}%</strong></div>
+                <div>毛利: <strong className="text-purple-300">{sec.avgGrossMargin}%</strong></div>
+                <div>ROE: <strong className="text-cyan-300">{sec.avgRoe}%</strong></div>
+              </div>
+
+              <div className="mt-1.5 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
+                <span>領銜龍頭: <strong className="text-slate-200">{sec.leaderStock}</strong></span>
+                <span className="text-blue-400 group-hover:underline">篩選板塊 ➔</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* KPI Summary Cards (AI Financial Health & Competitiveness) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 text-xs">
         <div className="bg-slate-900/80 border border-slate-800/90 rounded-xl p-3 flex flex-col justify-between">
@@ -477,7 +565,7 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
           <div className="text-xl sm:text-2xl font-extrabold font-mono text-white mt-1">
             20 <span className="text-xs text-slate-400 font-sans font-normal">檔精選</span>
           </div>
-          <span className="text-[10px] text-slate-500 mt-0.5">跨 7 大科技關鍵賽道</span>
+          <span className="text-[10px] text-slate-500 mt-0.5">5大最佳產業板塊精選</span>
         </div>
 
         <div className="bg-slate-900/80 border border-amber-900/40 rounded-xl p-3 flex flex-col justify-between">

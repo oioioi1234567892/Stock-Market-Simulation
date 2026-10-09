@@ -149,7 +149,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <Sparkles size={12} className={activeView === 'fundamentals' ? 'text-amber-300' : 'text-amber-400'} />
-              <span>科技股 AI 財報分析 (Top 20)</span>
+              <span>AI 精選個股 (Top 20)</span>
             </button>
           </div>
         )}
