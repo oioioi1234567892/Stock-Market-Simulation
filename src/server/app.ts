@@ -13,6 +13,7 @@ import {
   generateAllStocksAnalystAnalysis,
 } from '../utils/aiFinancialAnalystEngine.ts';
 import { AiStockFinancialAnalysis } from '../types/aiFinancialAnalysis.ts';
+import { runVolumeBreakoutScan, SECTORS_POOL } from '../utils/aiVolumeBreakoutEngine.ts';
 
 dotenv.config();
 
@@ -838,6 +839,47 @@ app.delete('/api/backtests/:id', (req: Request, res: Response) => {
     memoryBacktests.splice(idx, 1);
   }
   res.json({ success: true });
+});
+
+// 9. AI 放量起漲精選 (Top 5 成交量板塊 + 3個月 K線形態研判 + Top 20 放量起漲股)
+// 7. AI 放量起漲 20 檔黑馬雷達 API (台股最新一周 5 大成交量板塊 + 1 個月與 3 個月 K 線量能實況篩選)
+app.get('/api/ai/volume-breakout/scan', async (_req: Request, res: Response) => {
+  try {
+    // 蒐集前 5 大板塊全部成分股之股票代號
+    const allSymbols: string[] = [];
+    SECTORS_POOL.forEach(sec => {
+      sec.stocks.forEach(stk => {
+        if (!allSymbols.includes(stk.symbol)) {
+          allSymbols.push(stk.symbol);
+        }
+      });
+    });
+
+    // 並行連線 yfinance 獲取真實 3 個月日 K 線與量能數據
+    const candlesMap = new Map<string, CandleData[]>();
+    await Promise.allSettled(
+      allSymbols.map(async sym => {
+        try {
+          const liveCandles = await Promise.race([
+            fetchCandlesFromYahoo(sym, '3mo', '1d'),
+            new Promise<CandleData[]>((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000)),
+          ]);
+          if (Array.isArray(liveCandles) && liveCandles.length > 0) {
+            candlesMap.set(sym, liveCandles);
+          }
+        } catch {
+          // ignore error and proceed
+        }
+      })
+    );
+
+    // 透過真實 K 線與量價形態執行專業操盤篩選
+    const scanResult = runVolumeBreakoutScan(candlesMap);
+
+    res.json(scanResult);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 8. Auth sync compatibility

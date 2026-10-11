@@ -3,6 +3,8 @@ import { TaiwanStockInfo, POPULAR_TAIWAN_STOCKS, resolveTaiwanSymbol } from '../
 import { generateFallbackCandles, generateFallbackQuote } from './clientStockFallback.ts';
 import { MarketFinancialProgress, calculateMarketFinancialProgress } from '../utils/marketFinancialCalendar.ts';
 import { AiStockFinancialAnalysis } from '../types/aiFinancialAnalysis.ts';
+import { VolumeBreakoutScanResult } from '../types/volumeBreakout.ts';
+import { runVolumeBreakoutScan } from '../utils/aiVolumeBreakoutEngine.ts';
 import {
   generateAnalystStockAnalysis,
   generateAllStocksAnalystAnalysis,
@@ -460,5 +462,24 @@ export async function fetchAiBatchAnalysis(): Promise<Record<string, AiStockFina
   }
 
   return generateAllStocksAnalystAnalysis();
+}
+
+/**
+ * 取得最新每日交易量前 5 大板塊，並透過 AI Agent 研判 3 個月 K 線形態精選 Top 20 放量起漲股
+ */
+export async function fetchVolumeBreakoutScan(forceRefresh: boolean = false): Promise<VolumeBreakoutScanResult> {
+  try {
+    const res = await fetch(`/api/ai/volume-breakout/scan${forceRefresh ? '?refresh=1' : ''}`);
+    if (res.ok && isJsonResponse(res)) {
+      const data = await res.json();
+      if (data && Array.isArray(data.top20Stocks) && data.top20Stocks.length > 0) {
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn('fetchVolumeBreakoutScan network fetch error, falling back to local engine:', err);
+  }
+
+  return runVolumeBreakoutScan();
 }
 

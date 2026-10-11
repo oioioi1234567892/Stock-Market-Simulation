@@ -272,7 +272,7 @@ export default function App() {
             }`}
           >
             <Sparkles size={13} className={activeMobileTab === 'fundamentals' ? 'text-amber-300' : 'text-amber-400'} />
-            <span>AI精選</span>
+            <span>AI起漲20</span>
           </button>
           <button
             onClick={() => {

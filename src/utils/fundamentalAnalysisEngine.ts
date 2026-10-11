@@ -447,7 +447,12 @@ export function runTechFundamentalScan(
 
     // AI Agent 專業財報分析師推算注入
     const peers = TAIWAN_TECH_STOCKS_DATABASE.filter(s => s.sector === stock.sector);
-    const aiAnalysis = customAiBatch?.[stock.symbol] || generateAnalystStockAnalysis(stock, peers);
+    const baseAi = customAiBatch?.[stock.symbol] || generateAnalystStockAnalysis(stock, peers);
+    const aiAnalysis = {
+      ...baseAi,
+      currentPe: stock.currentPe,
+      quarters8Q: stock.quarters && stock.quarters.length > 0 ? stock.quarters : baseAi.quarters8Q,
+    };
 
     return {
       ...stock,

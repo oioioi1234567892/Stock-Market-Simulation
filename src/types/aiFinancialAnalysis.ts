@@ -26,6 +26,9 @@ export interface AiStockFinancialAnalysis {
   subCategory: string;
   currentPrice: number;
   changePercent: number;
+  currentPe?: number; // 最新本益比 (倍)
+  quarters8Q?: QuarterFinancial[]; // 最新連續 8 個季度財報完整指標數據
+
 
   // 1. 產業比較與競爭力判斷 (Industry Comparison & Moat)
   competitivenessRating: AiCompetitivenessRating;

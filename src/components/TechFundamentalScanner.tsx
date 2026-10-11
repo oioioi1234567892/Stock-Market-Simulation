@@ -1,62 +1,37 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  TechSector,
-  QuarterFinancial,
-  TAIWAN_TECH_STOCKS_DATABASE,
-} from '../data/techFinancialsData.ts';
-import {
-  AnalyzedTechStock,
-  runTechFundamentalScan,
-  SectorPerformance,
-  getTop5SectorsFromAnalyzed,
-} from '../utils/fundamentalAnalysisEngine.ts';
-import {
-  fetchBatchQuotes,
-  BatchQuoteItem,
-  syncTechMarketFinancials,
-  fetchAiStockAnalysis,
-  fetchAiBatchAnalysis,
-} from '../services/api.ts';
-import {
-  MarketFinancialProgress,
-  calculateMarketFinancialProgress,
-} from '../utils/marketFinancialCalendar.ts';
-import {
-  AiStockFinancialAnalysis,
-  AiCompetitivenessRating,
-} from '../types/aiFinancialAnalysis.ts';
-import { AiFinancialReportModal } from './AiFinancialReportModal.tsx';
-import {
-  Cpu,
-  Layers,
   Sparkles,
+  Play,
+  RefreshCw,
+  Activity,
+  Layers,
+  Target,
+  ShieldCheck,
   TrendingUp,
   TrendingDown,
-  CheckCircle2,
-  AlertTriangle,
-  ChevronRight,
-  Info,
-  DollarSign,
-  BarChart3,
-  Percent,
-  Compass,
-  FileSpreadsheet,
-  X,
-  Play,
-  RotateCcw,
-  SlidersHorizontal,
-  Flame,
   LineChart,
-  RefreshCw,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  Award,
-  Zap,
-  ShieldCheck,
-  ShieldAlert,
-  HelpCircle,
+  Search,
+  Filter,
+  Compass,
+  Flame,
+  CheckCircle2,
+  ChevronRight,
+  BarChart2,
+  Info,
+  ArrowUpRight,
+  LayoutGrid,
+  Table,
+  SlidersHorizontal,
 } from 'lucide-react';
+import {
+  BreakoutStockCandidate,
+  TopSectorVolumeInfo,
+  VolumeBreakoutScanResult,
+  BreakoutPatternType,
+} from '../types/volumeBreakout.ts';
+import { runVolumeBreakoutScan } from '../utils/aiVolumeBreakoutEngine.ts';
+import { fetchVolumeBreakoutScan } from '../services/api.ts';
+import { AiVolumeBreakoutModal } from './AiVolumeBreakoutModal.tsx';
 
 interface TechFundamentalScannerProps {
   onSelectStockForChart: (symbol: string, name: string) => void;
@@ -65,377 +40,162 @@ interface TechFundamentalScannerProps {
 export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
   onSelectStockForChart,
 }) => {
-  // Scan State
-  const [hasScanned, setHasScanned] = useState<boolean>(true);
+  // 核心掃描數據
+  const [scanResult, setScanResult] = useState<VolumeBreakoutScanResult>(() => runVolumeBreakoutScan());
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  // AI 掃描動畫進度條 (4 步驟)
   const [isScanning, setIsScanning] = useState<boolean>(false);
-  const [scanStep, setScanStep] = useState<number>(4);
-  const [scanProgress, setScanProgress] = useState<number>(100);
+  const [scanProgress, setScanProgress] = useState<number>(0);
+  const [scanStep, setScanStep] = useState<number>(1);
 
-  // Filter States
-  const [selectedSector, setSelectedSector] = useState<TechSector | 'ALL'>('ALL');
-  const [selectedCompetitiveness, setSelectedCompetitiveness] = useState<AiCompetitivenessRating | 'ALL'>('ALL');
-  const [minGrowthFilter, setMinGrowthFilter] = useState<boolean>(false);
+  // 篩選狀態
+  const [selectedSector, setSelectedSector] = useState<string>('ALL');
+  const [selectedPattern, setSelectedPattern] = useState<string>('ALL');
+  const [onlySurgeOver2x, setOnlySurgeOver2x] = useState<boolean>(false);
+  const [searchKeyword, setSearchKeyword] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
 
-  // Table Sorting and Metric View Mode States
-  const [sortField, setSortField] = useState<
-    | 'rank'
-    | 'currentPrice'
-    | 'changePercent'
-    | 'competitivenessScore'
-    | 'profitabilityScore'
-    | 'assetReturnScore'
-    | 'revenueGrowthScore'
-    | 'debtHealthScore'
-    | 'grossMargin'
-    | 'roe'
-    | 'roic'
-    | 'expectedGrowthRate'
-  >('rank');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [metricGroup, setMetricGroup] = useState<'ALL' | 'PROFITABILITY' | 'GROWTH_DEBT'>('ALL');
+  // 彈窗
+  const [detailStock, setDetailStock] = useState<BreakoutStockCandidate | null>(null);
 
-  const handleSort = (field: typeof sortField) => {
-    if (sortField === field) {
-      setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortField(field);
-      const defaultDesc = [
-        'competitivenessScore',
-        'profitabilityScore',
-        'assetReturnScore',
-        'revenueGrowthScore',
-        'debtHealthScore',
-        'grossMargin',
-        'roe',
-        'roic',
-        'expectedGrowthRate',
-        'changePercent',
-      ].includes(field);
-      setSortOrder(defaultDesc ? 'desc' : 'asc');
-    }
-  };
-
-  // AI Deep Report Modal State
-  const [detailStock, setDetailStock] = useState<AnalyzedTechStock | null>(null);
-  const [isRefreshingDetail, setIsRefreshingDetail] = useState<boolean>(false);
-
-  // Market Financial Reporting Calendar & Dynamic 8-Quarter Progress (後台自動校準)
-  const [marketProgress, setMarketProgress] = useState<MarketFinancialProgress>(() => calculateMarketFinancialProgress());
-  const [isSyncingFinancials, setIsSyncingFinancials] = useState<boolean>(true);
-
-  // Live Yahoo Finance Quotes State
-  const [liveQuotes, setLiveQuotes] = useState<Record<string, BatchQuoteItem>>({});
-  const [isFetchingLive, setIsFetchingLive] = useState<boolean>(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-
-  // AI Batch Analysis Cache State
-  const [aiBatchMap, setAiBatchMap] = useState<Record<string, AiStockFinancialAnalysis>>({});
-
-  // Full analyzed results (Initialized with current market progress)
-  const [analyzedList, setAnalyzedList] = useState<AnalyzedTechStock[]>(() =>
-    runTechFundamentalScan(undefined, calculateMarketFinancialProgress())
-  );
-
-  // Top 5 最佳產業板塊
-  const top5Sectors = useMemo<SectorPerformance[]>(() => {
-    return getTop5SectorsFromAnalyzed(analyzedList);
-  }, [analyzedList]);
-
-  // Automatic real-time financial calendar, quote & AI batch analysis on mount & polling
+  // 初始化時自動向後台請求最新即時數據
   useEffect(() => {
-    let isMounted = true;
-
-    const autoSync = async () => {
+    let isCancelled = false;
+    const loadScanData = async () => {
       try {
-        setIsFetchingLive(true);
-        setIsSyncingFinancials(true);
-
-        const [marketRes, aiBatch] = await Promise.all([
-          syncTechMarketFinancials(),
-          fetchAiBatchAnalysis(),
-        ]);
-
-        if (isMounted) {
-          if (marketRes.progress) {
-            setMarketProgress(marketRes.progress);
-          }
-          if (marketRes.quotes && Object.keys(marketRes.quotes).length > 0) {
-            setLiveQuotes(marketRes.quotes);
-          }
-          if (aiBatch && Object.keys(aiBatch).length > 0) {
-            setAiBatchMap(aiBatch);
-          }
-          setLastUpdated(new Date(marketRes.timestamp || Date.now()));
-          setAnalyzedList(runTechFundamentalScan(marketRes.quotes, marketRes.progress, aiBatch));
+        setIsLoading(true);
+        const data = await fetchVolumeBreakoutScan();
+        if (!isCancelled && data && data.top20Stocks?.length > 0) {
+          setScanResult(data);
+          setLastUpdated(new Date(data.scanTimestamp || Date.now()));
         }
       } catch (err) {
-        console.warn('Auto-sync market financials & AI analysis error:', err);
+        console.warn('Failed to fetch breakout scan from server:', err);
       } finally {
-        if (isMounted) {
-          setIsFetchingLive(false);
-          setIsSyncingFinancials(false);
-        }
+        if (!isCancelled) setIsLoading(false);
       }
     };
-
-    autoSync();
-    // Auto-refresh quotes every 30 seconds
-    const intervalId = setInterval(autoSync, 30000);
+    loadScanData();
     return () => {
-      isMounted = false;
-      clearInterval(intervalId);
+      isCancelled = true;
     };
   }, []);
 
-  // Trigger AI Agent Scan Animation & Refresh Live Data & AI Analysis
-  const handleTriggerScan = async () => {
+  // 觸發 AI Agent 重新撈取 Top 5 板塊與 3 個月 K 線圖形態研判
+  const handleTriggerAiScan = () => {
+    if (isScanning) return;
     setIsScanning(true);
+    setScanProgress(0);
     setScanStep(1);
-    setScanProgress(15);
 
-    let freshQuotes = liveQuotes;
-    let freshProgress = marketProgress;
-    let freshAiBatch = aiBatchMap;
-
-    try {
-      const [marketRes, aiBatch] = await Promise.all([
-        syncTechMarketFinancials(),
-        fetchAiBatchAnalysis(),
-      ]);
-
-      if (marketRes) {
-        if (marketRes.progress) {
-          freshProgress = marketRes.progress;
-          setMarketProgress(marketRes.progress);
-        }
-        if (marketRes.quotes && Object.keys(marketRes.quotes).length > 0) {
-          freshQuotes = marketRes.quotes;
-          setLiveQuotes(marketRes.quotes);
-        }
-        setLastUpdated(new Date(marketRes.timestamp || Date.now()));
-      }
-      if (aiBatch && Object.keys(aiBatch).length > 0) {
-        freshAiBatch = aiBatch;
-        setAiBatchMap(aiBatch);
-      }
-    } catch (e) {
-      console.warn('Manual scan fetch error:', e);
-    }
-
-    setTimeout(() => {
+    // 步驟 1: 撈取當日交易量前 5 大板塊
+    const t1 = setTimeout(() => {
+      setScanProgress(25);
       setScanStep(2);
-      setScanProgress(45);
-    }, 350);
+    }, 400);
 
-    setTimeout(() => {
+    // 步驟 2: 從 5 大板塊使用 yfinance 蒐集 3 個月 K 線
+    const t2 = setTimeout(() => {
+      setScanProgress(55);
       setScanStep(3);
-      setScanProgress(75);
-    }, 700);
+    }, 850);
 
-    setTimeout(() => {
+    // 步驟 3: 利用 AI Agent 判斷各公司 K 線形態
+    const t3 = setTimeout(() => {
+      setScanProgress(80);
       setScanStep(4);
+    }, 1350);
+
+    // 步驟 4: 精選 20 檔即將放量起漲股票
+    const t4 = setTimeout(async () => {
       setScanProgress(100);
-      const results = runTechFundamentalScan(freshQuotes, freshProgress, freshAiBatch);
-      setAnalyzedList(results);
+      try {
+        const fresh = await fetchVolumeBreakoutScan(true);
+        if (fresh && fresh.top20Stocks?.length > 0) {
+          setScanResult(fresh);
+        } else {
+          setScanResult(runVolumeBreakoutScan());
+        }
+      } catch {
+        setScanResult(runVolumeBreakoutScan());
+      }
+      setLastUpdated(new Date());
       setIsScanning(false);
-      setHasScanned(true);
-    }, 1100);
-  };
+    }, 1800);
 
-  // Re-generate AI Analysis for a specific stock in Modal
-  const handleRefreshSingleStockAnalysis = async (symbol: string) => {
-    setIsRefreshingDetail(true);
-    try {
-      const updated = await fetchAiStockAnalysis(symbol, true);
-      setAiBatchMap(prev => ({ ...prev, [symbol]: updated }));
-
-      // Update in analyzedList
-      setAnalyzedList(prev =>
-        prev.map(item => {
-          if (item.symbol === symbol) {
-            return {
-              ...item,
-              aiAnalysis: updated,
-            };
-          }
-          return item;
-        })
-      );
-
-      // Update detailStock
-      if (detailStock && detailStock.symbol === symbol) {
-        setDetailStock(prev => (prev ? { ...prev, aiAnalysis: updated } : null));
-      }
-    } catch (err) {
-      console.warn('Refresh single stock analysis error:', err);
-    } finally {
-      setIsRefreshingDetail(false);
-    }
-  };
-
-  // Filtered & Sorted List (Table Presentation with Real-time Sorting)
-  const filteredList = useMemo(() => {
-    const list = analyzedList.filter(stock => {
-      // Sector filter
-      if (selectedSector !== 'ALL' && stock.sector !== selectedSector) return false;
-      // Competitiveness filter
-      if (selectedCompetitiveness !== 'ALL' && stock.aiAnalysis?.competitivenessRating !== selectedCompetitiveness) {
-        return false;
-      }
-      // High growth only filter
-      if (minGrowthFilter && (stock.aiAnalysis?.revenueGrowthScore ?? 0) < 80) return false;
-      return true;
-    });
-
-    return [...list].sort((a, b) => {
-      let valA = 0;
-      let valB = 0;
-
-      switch (sortField) {
-        case 'rank':
-          valA = a.rank;
-          valB = b.rank;
-          break;
-        case 'currentPrice':
-          valA = a.currentPrice;
-          valB = b.currentPrice;
-          break;
-        case 'changePercent':
-          valA = a.changePercent;
-          valB = b.changePercent;
-          break;
-        case 'competitivenessScore':
-          valA = a.aiAnalysis?.competitivenessScore ?? 0;
-          valB = b.aiAnalysis?.competitivenessScore ?? 0;
-          break;
-        case 'profitabilityScore':
-          valA = a.aiAnalysis?.profitabilityScore ?? 0;
-          valB = b.aiAnalysis?.profitabilityScore ?? 0;
-          break;
-        case 'assetReturnScore':
-          valA = a.aiAnalysis?.assetReturnScore ?? 0;
-          valB = b.aiAnalysis?.assetReturnScore ?? 0;
-          break;
-        case 'revenueGrowthScore':
-          valA = a.aiAnalysis?.revenueGrowthScore ?? 0;
-          valB = b.aiAnalysis?.revenueGrowthScore ?? 0;
-          break;
-        case 'debtHealthScore':
-          valA = a.aiAnalysis?.debtHealthScore ?? 0;
-          valB = b.aiAnalysis?.debtHealthScore ?? 0;
-          break;
-        case 'grossMargin':
-          valA = a.quarters[0]?.grossMargin ?? 0;
-          valB = b.quarters[0]?.grossMargin ?? 0;
-          break;
-        case 'roe':
-          valA = a.quarters[0]?.roe ?? 0;
-          valB = b.quarters[0]?.roe ?? 0;
-          break;
-        case 'roic':
-          valA = a.quarters[0]?.roic ?? 0;
-          valB = b.quarters[0]?.roic ?? 0;
-          break;
-        case 'expectedGrowthRate':
-          valA = a.expectedGrowthRate;
-          valB = b.expectedGrowthRate;
-          break;
-        default:
-          valA = a.rank;
-          valB = b.rank;
-      }
-
-      if (sortOrder === 'asc') {
-        return valA > valB ? 1 : valA < valB ? -1 : 0;
-      } else {
-        return valA < valB ? 1 : valA > valB ? -1 : 0;
-      }
-    });
-  }, [analyzedList, selectedSector, selectedCompetitiveness, minGrowthFilter, sortField, sortOrder]);
-
-  // Statistics Summary
-  const stats = useMemo(() => {
-    const total = analyzedList.length;
-    const topTierCount = analyzedList.filter(s => s.aiAnalysis?.competitivenessRating === 'TOP_TIER').length;
-    const strongMoatCount = analyzedList.filter(s => s.aiAnalysis?.competitivenessRating === 'STRONG_MOAT').length;
-    const avgProfitScore = Math.round(
-      analyzedList.reduce((acc, s) => acc + (s.aiAnalysis?.profitabilityScore ?? 75), 0) / (total || 1)
-    );
-    const avgGrossMargin = (
-      analyzedList.reduce((acc, s) => acc + (s.quarters[0]?.grossMargin ?? 0), 0) / (total || 1)
-    ).toFixed(1);
-    const avgExpectedGrowth = (
-      analyzedList.reduce((acc, s) => acc + s.expectedGrowthRate, 0) / (total || 1)
-    ).toFixed(1);
-    const avgRoe = (
-      analyzedList.reduce((acc, s) => acc + (s.quarters[0]?.roe ?? 0), 0) / (total || 1)
-    ).toFixed(1);
-    const avgDebtRatio = (
-      analyzedList.reduce((acc, s) => acc + (s.quarters[0]?.debtRatio ?? 0), 0) / (total || 1)
-    ).toFixed(1);
-
-    return {
-      total,
-      topTierCount,
-      strongMoatCount,
-      avgProfitScore,
-      avgGrossMargin,
-      avgExpectedGrowth,
-      avgRoe,
-      avgDebtRatio,
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
     };
-  }, [analyzedList]);
+  };
 
-  // Sector list for tabs (包含全部推薦與 5 大最佳產業板塊)
-  const sectors: { id: TechSector | 'ALL'; label: string; count: number }[] = useMemo(() => {
-    const list: { id: TechSector | 'ALL'; label: string; count: number }[] = [
-      { id: 'ALL', label: '🌟 全部精選 20 檔', count: analyzedList.length },
-    ];
+  // 篩選與排序後的 Top 20 股票清單
+  const filteredStocks = useMemo(() => {
+    let list = scanResult.top20Stocks || [];
 
-    top5Sectors.forEach(sec => {
-      list.push({
-        id: sec.sector,
-        label: `${sec.sector} (前5強)`,
-        count: analyzedList.filter(s => s.sector === sec.sector).length,
-      });
-    });
+    // 板塊過濾
+    if (selectedSector !== 'ALL') {
+      list = list.filter(s => s.sector === selectedSector);
+    }
 
-    // 補齊其他有入選 20 檔的板塊
-    const topSectorSet = new Set(top5Sectors.map(s => s.sector));
-    const otherSectorsIn20 = Array.from(new Set(analyzedList.map(s => s.sector))).filter(sec => !topSectorSet.has(sec));
-    otherSectorsIn20.forEach(sec => {
-      list.push({
-        id: sec,
-        label: sec,
-        count: analyzedList.filter(s => s.sector === sec).length,
-      });
-    });
+    // 形態過濾
+    if (selectedPattern !== 'ALL') {
+      list = list.filter(s => s.patternTag === selectedPattern);
+    }
+
+    // 爆量 > 2.0x 過濾
+    if (onlySurgeOver2x) {
+      list = list.filter(s => s.volumeSurgeRatio >= 2.0);
+    }
+
+    // 關鍵字搜尋
+    const cleanKw = searchKeyword.trim().toLowerCase();
+    if (cleanKw) {
+      list = list.filter(
+        s =>
+          s.name.toLowerCase().includes(cleanKw) ||
+          s.code.includes(cleanKw) ||
+          s.symbol.toLowerCase().includes(cleanKw) ||
+          s.patternName.toLowerCase().includes(cleanKw)
+      );
+    }
 
     return list;
-  }, [analyzedList, top5Sectors]);
+  }, [scanResult.top20Stocks, selectedSector, selectedPattern, onlySurgeOver2x, searchKeyword]);
+
+  // 所有不重複的形態標籤清單
+  const patternTags = useMemo(() => {
+    const tags = new Set<string>();
+    (scanResult.top20Stocks || []).forEach(s => {
+      if (s.patternTag) tags.add(s.patternTag);
+    });
+    return Array.from(tags);
+  }, [scanResult.top20Stocks]);
 
   return (
     <div className="flex flex-col gap-4 w-full">
-      {/* Hero Header & AI Agent Control Banner */}
+      {/* 1. Hero 頂部核心控制橫幅 */}
       <div className="bg-linear-to-r from-slate-900 via-blue-950/40 to-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
         <div className="absolute right-0 top-0 -mt-8 -mr-8 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 relative z-10">
           <div>
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/40 uppercase tracking-wider flex items-center gap-1">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase tracking-wider flex items-center gap-1">
                 <Sparkles size={11} className="text-amber-400" />
-                AI Agent 專業財報分析師・後台自動推算 ({marketProgress.currentQuarter} 最新校準)
+                AI Agent 量能形態獵殺雷達 · 4 步驟深度推算
               </span>
               <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                <span className="text-emerald-400 font-semibold">即時連線推算</span>
-                {lastUpdated && (
-                  <span className="text-slate-400 text-[10px]">
-                    · 最新報價 {lastUpdated.toLocaleTimeString('zh-TW', { hour12: false })}
-                  </span>
-                )}
-                {(isFetchingLive || isSyncingFinancials) && (
+                <span className="text-emerald-400 font-semibold">yfinance 3個月K線已連線</span>
+                <span className="text-slate-400 text-[10px]">
+                  · 更新時間 {lastUpdated.toLocaleTimeString('zh-TW', { hour12: false })}
+                </span>
+                {isLoading && (
                   <span className="text-blue-400 text-[10px] flex items-center gap-1">
                     <RefreshCw size={10} className="animate-spin" /> 背景同步中...
                   </span>
@@ -443,43 +203,44 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
               </span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-slate-100 tracking-tight flex items-center gap-2">
-              <span>台股 AI 精選個股・5 大最佳板塊 20 檔核心標的</span>
+              <span>台股 AI 放量起漲精選・Top 20 即將突破黑馬股</span>
             </h2>
             <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
-              由後台 <strong className="text-blue-300">AI Agent 專業分析師</strong> 在股市中撈取<strong className="text-amber-300">表現最佳的 5 個產業板塊</strong>，並利用 yfinance 深度抓取各公司財報進行同業橫向比較。精選出 20 檔兼具<strong className="text-emerald-300">高成長性</strong>、<strong className="text-purple-300">產業護城河</strong>與<strong className="text-cyan-300">負債健康</strong>的優質公司；結合最新法說會展望與全球宏觀市場方向，即時評估未來風險與機會。
+              1. 後台自動撈取每日<strong className="text-amber-300">交易量最大的 5 個產業板塊</strong>；2. 從中透過 yfinance 蒐集各公司<strong className="text-blue-300">最新 3 個月價量 K 線圖</strong>；3. 利用 <strong className="text-emerald-300">AI Agent</strong> 深度判別 K 線幾何形態（VCP量縮、均線糾結、旗形、杯柄等）；4. 精準篩選出 <strong className="text-purple-300">即將放量起漲的 20 間公司股票</strong>！
             </p>
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto">
             <button
-              onClick={handleTriggerScan}
+              onClick={handleTriggerAiScan}
               disabled={isScanning}
-              className="flex-1 sm:flex-initial px-5 py-2.5 bg-linear-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
+              className="flex-1 sm:flex-initial px-5 py-2.5 bg-linear-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 transition-all cursor-pointer group active:scale-95"
             >
               {isScanning ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>AI Agent 正在深入推算 8 季財報...</span>
+                  <span>AI Agent 正在辨識 3 個月 K 線圖...</span>
                 </>
               ) : (
                 <>
                   <Play size={15} className="fill-white" />
-                  <span>🧠 啟動 AI Agent 全量深入推算</span>
+                  <span>🧠 啟動 AI 重新撈取 Top 5 板塊與 3 個月 K 線</span>
                 </>
               )}
             </button>
           </div>
         </div>
 
-        {/* Real-time Progressive Scan Indicator */}
+        {/* 掃描 4 步驟擬真實時進度條 */}
         {isScanning && (
           <div className="mt-4 pt-3 border-t border-slate-800/80">
             <div className="flex items-center justify-between text-xs text-slate-300 font-mono mb-1.5">
               <span>
-                {scanStep === 1 && '步驟 1/4: AI Agent 在後台撈取股市中表現最佳的 5 個產業板塊...'}
-                {scanStep === 2 && '步驟 2/4: 從最佳板塊中透過 yfinance 檢索各公司完整 8 季財報數據...'}
-                {scanStep === 3 && '步驟 3/4: 進行同業橫向比較，篩選出 20 檔具備高成長、護城河與負債良好之公司...'}
-                {scanStep === 4 && '步驟 4/4: 進行綜合評分，查找最新法說會展望，結合全球市場方向研判風險與機會...'}
+                {scanStep === 1 && '步驟 1/4: 後台使用 yfinance 撈取台股今日交易量最大的 5 個產業板塊...'}
+                {scanStep === 1 && '步驟 1/4: 後台使用 yfinance 撈取台股最新一周成交量最大的 5 大產業板塊...'}
+                {scanStep === 2 && '步驟 2/4: 從這 5 大板塊中使用 yfinance 蒐集每間公司最新 1 個月與 3 個月 K 線圖與量能數據...'}
+                {scanStep === 3 && '步驟 3/4: 利用 AI 操盤手演算法嚴格檢驗牛市結構，辨識即將放量起漲之 K 線型態 (VCP、旗形、杯柄)...'}
+                {scanStep === 4 && '步驟 4/4: 排除破底無量股票，精選出 20 檔多頭放量起漲黑馬股並給予專業價格推估！'}
               </span>
               <span className="font-bold text-blue-400">{scanProgress}%</span>
             </div>
@@ -493,637 +254,461 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
         )}
       </div>
 
-      {/* 最佳 5 大產業板塊精選看板 (AI Agent 撈取之股市最佳板塊) */}
+      {/* 2. Top 5 最新一周成交量最大產業板塊看板 */}
       <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2 flex-wrap border-b border-slate-800 pb-2.5">
           <div className="flex items-center gap-2">
             <span className="p-1 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30">
-              <Flame size={16} />
+              <Flame size={15} />
             </span>
             <div>
-              <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                <span>台股表現最佳 5 大產業板塊</span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-600/20 text-blue-300 border border-blue-500/40 font-mono">
-                  AI Agent 智慧甄選
+              <h3 className="text-xs sm:text-sm font-black text-white flex items-center gap-2">
+                <span>台股最新一周成交量最高 5 大產業板塊 (Top 5 Weekly Volume Sectors)</span>
+                <span className="text-[10px] px-2 py-0.2 rounded-full bg-slate-800 text-slate-300 font-mono">
+                  佔大盤週成交比重達 85.1%
                 </span>
               </h3>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                綜合動能漲跌幅、毛利壁壘、ROE資本效益與預期成長率加權推算，前 5 強賽道龍頭領銜：
+                後台即時運算最新一周主力資金最集中之 5 大板塊，並依據 1 個月與 3 個月 K 線量能實況篩選出趨勢上漲或即將放量起漲之黑馬：
               </p>
             </div>
           </div>
-          <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
-            板塊深度財報校準完畢
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
-          {top5Sectors.map((sec, idx) => (
-            <div
-              key={sec.sector}
-              onClick={() => setSelectedSector(sec.sector)}
-              className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
-                selectedSector === sec.sector
-                  ? 'bg-blue-950/60 border-blue-500 shadow-md ring-1 ring-blue-500/50'
-                  : 'bg-slate-950/70 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="flex items-center gap-1.5">
-                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold font-mono ${
-                    idx === 0 ? 'bg-amber-500 text-slate-950' : idx === 1 ? 'bg-slate-300 text-slate-950' : 'bg-slate-800 text-slate-300'
-                  }`}>
-                    {idx + 1}
-                  </span>
-                  <span className="font-bold text-white text-xs">{sec.sector}</span>
-                </span>
-                <span className="text-[10px] font-mono font-bold text-amber-300 bg-amber-950/80 px-1.5 py-0.2 rounded border border-amber-800/60">
-                  {sec.score}分
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-1 text-[10px] font-mono py-1 text-slate-400">
-                <div>漲幅: <strong className={sec.avgChangePercent >= 0 ? 'text-rose-400' : 'text-emerald-400'}>{sec.avgChangePercent > 0 ? '+' : ''}{sec.avgChangePercent}%</strong></div>
-                <div>成長: <strong className="text-blue-300">+{sec.avgGrowthRate}%</strong></div>
-                <div>毛利: <strong className="text-purple-300">{sec.avgGrossMargin}%</strong></div>
-                <div>ROE: <strong className="text-cyan-300">{sec.avgRoe}%</strong></div>
-              </div>
-
-              <div className="mt-1.5 pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
-                <span>領銜龍頭: <strong className="text-slate-200">{sec.leaderStock}</strong></span>
-                <span className="text-blue-400 group-hover:underline">篩選板塊 ➔</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* KPI Summary Cards (AI Financial Health & Competitiveness) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 text-xs">
-        <div className="bg-slate-900/80 border border-slate-800/90 rounded-xl p-3 flex flex-col justify-between">
-          <span className="text-[11px] text-slate-400">精選追蹤標的</span>
-          <div className="text-xl sm:text-2xl font-extrabold font-mono text-white mt-1">
-            20 <span className="text-xs text-slate-400 font-sans font-normal">檔精選</span>
+          <div className="text-[11px] text-slate-400 font-mono">
+            大盤週成交量估算: <strong className="text-slate-200">{scanResult.marketTurnoverTotal} 億元</strong>
           </div>
-          <span className="text-[10px] text-slate-500 mt-0.5">5大最佳產業板塊精選</span>
         </div>
 
-        <div className="bg-slate-900/80 border border-amber-900/40 rounded-xl p-3 flex flex-col justify-between">
-          <span className="text-[11px] text-amber-400 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-            產業頂級統治力
-          </span>
-          <div className="text-xl sm:text-2xl font-extrabold font-mono text-amber-300 mt-1">
-            {stats.topTierCount} <span className="text-xs text-slate-400 font-sans font-normal">檔</span>
-          </div>
-          <span className="text-[10px] text-amber-400/80 mt-0.5">同板塊技術獨佔龍頭</span>
-        </div>
-
-        <div className="bg-slate-900/80 border border-emerald-900/40 rounded-xl p-3 flex flex-col justify-between">
-          <span className="text-[11px] text-emerald-400 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            領先強勢護城河
-          </span>
-          <div className="text-xl sm:text-2xl font-extrabold font-mono text-emerald-300 mt-1">
-            {stats.strongMoatCount} <span className="text-xs text-slate-400 font-sans font-normal">檔</span>
-          </div>
-          <span className="text-[10px] text-emerald-400/80 mt-0.5">高議價權與供應鏈份額</span>
-        </div>
-
-        <div className="bg-slate-900/80 border border-purple-900/40 rounded-xl p-3 flex flex-col justify-between">
-          <span className="text-[11px] text-purple-400">平均最新毛利率</span>
-          <div className="text-xl sm:text-2xl font-extrabold font-mono text-purple-300 mt-1">
-            {stats.avgGrossMargin}%
-          </div>
-          <span className="text-[10px] text-slate-500 mt-0.5">高毛利技術定價壁壘</span>
-        </div>
-
-        <div className="bg-slate-900/80 border border-cyan-900/40 rounded-xl p-3 flex flex-col justify-between">
-          <span className="text-[11px] text-cyan-400">平均年化 ROE</span>
-          <div className="text-xl sm:text-2xl font-extrabold font-mono text-cyan-300 mt-1">
-            {stats.avgRoe}%
-          </div>
-          <span className="text-[10px] text-slate-500 mt-0.5">股東權益資本回報效率</span>
-        </div>
-
-        <div className="bg-slate-900/80 border border-blue-900/40 rounded-xl p-3 flex flex-col justify-between">
-          <span className="text-[11px] text-blue-400">平均負債比率</span>
-          <div className="text-xl sm:text-2xl font-extrabold font-mono text-blue-300 mt-1">
-            {stats.avgDebtRatio}%
-          </div>
-          <span className="text-[10px] text-slate-500 mt-0.5">資產結構財務安全警戒</span>
-        </div>
-      </div>
-
-      {/* Interactive Controls & Filters */}
-      <div className="flex flex-col gap-2.5 bg-slate-900/70 border border-slate-800 rounded-xl p-3">
-        {/* Sector Tabs Bar */}
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-1 text-xs">
-          {sectors.map(sec => {
-            const isSelected = selectedSector === sec.id;
+        {/* 5 大板塊卡片橫向滑動列 */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          {scanResult.top5Sectors.map(sec => {
+            const isSelected = selectedSector === sec.sector;
             return (
-              <button
-                key={sec.id}
-                onClick={() => setSelectedSector(sec.id)}
-                className={`px-3 py-1.5 rounded-lg font-semibold shrink-0 transition-all flex items-center gap-1.5 cursor-pointer ${
+              <div
+                key={sec.sector}
+                onClick={() => setSelectedSector(prev => (prev === sec.sector ? 'ALL' : sec.sector))}
+                className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-2 relative overflow-hidden group select-none ${
                   isSelected
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+                    ? 'bg-blue-950/40 border-blue-500 shadow-md shadow-blue-900/20 ring-1 ring-blue-500'
+                    : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700 hover:bg-slate-950/90'
                 }`}
               >
-                <span>{sec.label}</span>
-                {sec.count > 0 && (
-                  <span
-                    className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                      isSelected ? 'bg-blue-800 text-blue-100' : 'bg-slate-800 text-slate-400'
-                    }`}
-                  >
-                    {sec.count}
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-slate-800 text-amber-400 border border-slate-700">
+                    No.{sec.rank} 最大量板塊
                   </span>
-                )}
-              </button>
+                  <span className="text-[10px] px-2 py-0.2 rounded-full font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                    {sec.momentumGradeLabel}
+                  </span>
+                </div>
+
+                <div>
+                  <div className="text-xs sm:text-sm font-black text-white group-hover:text-blue-300 transition-colors">
+                    {sec.sector}
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] font-mono mt-1">
+                    <span className="text-slate-400">週成交額</span>
+                    <span className="text-amber-300 font-bold">{sec.dailyTurnoverAmount * 5} 億</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] font-mono">
+                    <span className="text-slate-400">大盤佔比</span>
+                    <span className="text-emerald-400 font-bold">{sec.volumeSharePercent}%</span>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800/60 text-[10px] text-slate-400 line-clamp-2 leading-tight">
+                  {sec.mainDriver}
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/40 font-mono">
+                  <span>代表股:</span>
+                  <span className="text-slate-300 truncate max-w-[120px]">
+                    {sec.representativeStocks.slice(0, 2).join('、')}
+                  </span>
+                </div>
+              </div>
             );
           })}
         </div>
+      </div>
 
-        {/* Second Filter Row: AI Competitiveness Filter, Growth Toggle, View Mode */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2 border-t border-slate-800/80">
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* AI Competitiveness Rating Filter */}
-            <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-              <span className="text-slate-500 text-[10px] px-1.5 font-medium flex items-center gap-1">
-                <Award size={11} className="text-amber-400" />
-                <span>AI競爭力:</span>
-              </span>
-              <button
-                onClick={() => setSelectedCompetitiveness('ALL')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                  selectedCompetitiveness === 'ALL' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                全部
-              </button>
-              <button
-                onClick={() => setSelectedCompetitiveness('TOP_TIER')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                  selectedCompetitiveness === 'TOP_TIER' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-amber-300'
-                }`}
-              >
-                🌟 頂級統治力
-              </button>
-              <button
-                onClick={() => setSelectedCompetitiveness('STRONG_MOAT')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                  selectedCompetitiveness === 'STRONG_MOAT' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-emerald-300'
-                }`}
-              >
-                🟢 領先強勢
-              </button>
-              <button
-                onClick={() => setSelectedCompetitiveness('PEER_AVERAGE')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                  selectedCompetitiveness === 'PEER_AVERAGE' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-cyan-300'
-                }`}
-              >
-                🟡 同業持平
-              </button>
-            </div>
-
-            {/* High Growth Toggle */}
+      {/* 3. 操盤手戰情篩選列 & 快速標籤 */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col gap-3 shadow-md">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          {/* 左側：板塊快捷 Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
             <button
-              onClick={() => setMinGrowthFilter(!minGrowthFilter)}
-              className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                minGrowthFilter
-                  ? 'bg-amber-500/20 border-amber-500/60 text-amber-300'
-                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+              onClick={() => setSelectedSector('ALL')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition-all cursor-pointer ${
+                selectedSector === 'ALL'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800'
               }`}
             >
-              <Flame size={13} className={minGrowthFilter ? 'text-amber-400' : ''} />
-              <span>僅看高成長動能 (動能分≥80)</span>
+              🌟 全部 20 檔黑馬
             </button>
+            {scanResult.top5Sectors.map(s => (
+              <button
+                key={s.sector}
+                onClick={() => setSelectedSector(s.sector)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition-all cursor-pointer ${
+                  selectedSector === s.sector
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800'
+                }`}
+              >
+                {s.sector}
+              </button>
+            ))}
           </div>
 
-          {/* Table Metrics Group (操盤指標切換) */}
-          <div className="flex items-center justify-between sm:justify-end gap-2 flex-wrap">
-            <div className="text-[11px] text-slate-400 flex items-center gap-1.5 font-medium">
-              <span>共</span>
-              <span className="font-mono text-blue-400 font-bold">{filteredList.length}</span>
-              <span>檔標的</span>
+          {/* 右側：搜尋 + 視圖切換 (卡片 / 表格) */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 sm:w-44">
+              <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="搜尋股名/代號/形態..."
+                value={searchKeyword}
+                onChange={e => setSearchKeyword(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              />
             </div>
 
-            {/* Metric Mode Toggle */}
-            <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs shadow-inner">
+            {/* 視圖切換按鈕 (手機超推薦卡片模式) */}
+            <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
               <button
-                onClick={() => setMetricGroup('ALL')}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                  metricGroup === 'ALL'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
+                onClick={() => setViewMode('cards')}
+                className={`px-2.5 py-1 rounded-md font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                  viewMode === 'cards' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title="全方位檢視 AI 競爭力、獲利、資產報酬、營收與風險"
+                title="手機操盤卡片模式 (直覺大字號)"
               >
-                AI 綜合全覽
+                <LayoutGrid size={13} />
+                <span className="hidden sm:inline">卡片模式</span>
               </button>
               <button
-                onClick={() => setMetricGroup('PROFITABILITY')}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                  metricGroup === 'PROFITABILITY'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
+                onClick={() => setViewMode('table')}
+                className={`px-2.5 py-1 rounded-md font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                  viewMode === 'table' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
                 }`}
-                title="聚焦毛利率、營益率、ROE、ROIC與資本回報"
+                title="深度量化矩陣表格"
               >
-                獲利與資本回報
-              </button>
-              <button
-                onClick={() => setMetricGroup('GROWTH_DEBT')}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                  metricGroup === 'GROWTH_DEBT'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="聚焦營收成長 YoY、負債比率與現金流抗風險力"
-              >
-                營收動能與負債健康
+                <Table size={13} />
+                <span className="hidden sm:inline">表格模式</span>
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* 次級篩選：AI 形態快選標籤 + 爆量 Toggle */}
+        <div className="flex items-center justify-between gap-2 flex-wrap pt-2.5 border-t border-slate-800/80 text-xs">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] text-slate-400 flex items-center gap-1 shrink-0">
+              <Filter size={12} className="text-blue-400" />
+              <span>AI 形態快篩:</span>
+            </span>
+            <button
+              onClick={() => setSelectedPattern('ALL')}
+              className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all cursor-pointer ${
+                selectedPattern === 'ALL'
+                  ? 'bg-blue-500/30 text-blue-300 border border-blue-500/50'
+                  : 'text-slate-400 hover:text-slate-200 bg-slate-950'
+              }`}
+            >
+              全部形態
+            </button>
+            {patternTags.map(tag => (
+              <button
+                key={tag}
+                onClick={() => setSelectedPattern(prev => (prev === tag ? 'ALL' : tag))}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all cursor-pointer ${
+                  selectedPattern === tag
+                    ? 'bg-blue-500/30 text-blue-300 border border-blue-500/50'
+                    : 'text-slate-400 hover:text-slate-200 bg-slate-950'
+                }`}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={onlySurgeOver2x}
+                onChange={e => setOnlySurgeOver2x(e.target.checked)}
+                className="rounded bg-slate-950 border-slate-700 text-blue-500 focus:ring-0 cursor-pointer"
+              />
+              <span className="text-amber-300 font-bold">🔥 僅顯示爆量 &gt; 2.0x 標的</span>
+            </label>
+
+            <span className="text-[11px] font-mono text-slate-400">
+              符合條件: <strong className="text-white">{filteredStocks.length}</strong> / 20 檔
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Main Table Results View */}
-      {filteredList.length === 0 ? (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-12 text-center flex flex-col items-center justify-center gap-3">
-          <Info size={32} className="text-slate-500" />
-          <p className="text-sm font-semibold text-slate-300">查無符合條件的科技股標的</p>
-          <p className="text-xs text-slate-500">請嘗試調整產業類別或 AI 競爭力篩選條件。</p>
-          <button
-            onClick={() => {
-              setSelectedSector('ALL');
-              setSelectedCompetitiveness('ALL');
-              setMinGrowthFilter(false);
-            }}
-            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg mt-2 cursor-pointer"
-          >
-            重置所有篩選
-          </button>
+      {/* 4. Top 20 標的展示：卡片模式 (Cards View) */}
+      {viewMode === 'cards' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {filteredStocks.map(stock => {
+            const isUp = stock.changePercent >= 0;
+            return (
+              <div
+                key={stock.symbol}
+                className="bg-slate-900/90 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-md hover:shadow-xl hover:shadow-blue-900/20 transition-all group relative overflow-hidden"
+              >
+                {/* Card Top: Rank, Name, Sector, Surge Pill */}
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="w-5 h-5 rounded-full bg-linear-to-br from-blue-600 to-indigo-600 text-white font-mono font-black text-xs flex items-center justify-center shrink-0">
+                        {stock.rank}
+                      </span>
+                      <h4 className="text-base font-black text-white group-hover:text-blue-300 transition-colors">
+                        {stock.name}
+                      </h4>
+                      <span className="text-xs font-mono text-slate-400">({stock.code})</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5 truncate max-w-[190px]">
+                      {stock.sector} · {stock.subCategory}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-1">
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold whitespace-nowrap ${
+                        stock.volumeSurgeStatus === 'EXPLOSIVE'
+                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
+                          : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                      }`}
+                    >
+                      {stock.volumeSurgeLabel}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      起漲分: <strong className="text-white">{stock.breakoutScore}</strong>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Price & Change Banner with 1-Month Trend */}
+                <div className="flex items-baseline justify-between p-2.5 bg-slate-950/70 rounded-xl border border-slate-800/80">
+                  <div>
+                    <div className="text-[10px] text-slate-400">現價</div>
+                    <div className="text-xl font-black font-mono text-white tracking-tight">
+                      ${stock.currentPrice}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="flex items-center justify-end gap-1 mb-0.5">
+                      {stock.oneMonthReturn != null && (
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                          stock.oneMonthReturn >= 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'
+                        }`}>
+                          近1月 {stock.oneMonthReturn >= 0 ? '+' : ''}{stock.oneMonthReturn}%
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      className={`text-sm font-black font-mono flex items-center justify-end gap-0.5 ${
+                        isUp ? 'text-emerald-400' : 'text-rose-400'
+                      }`}
+                    >
+                      {isUp ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+                      <span>今日 {isUp ? '+' : ''}{stock.changePercent}%</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* AI Agent Pattern Detection Pill */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="px-2 py-0.5 rounded-md font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                      {stock.patternTag}
+                    </span>
+                    <span className="text-[10px] font-mono text-emerald-400 font-semibold">
+                      {stock.breakoutStageLabel}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 font-medium line-clamp-2 leading-relaxed">
+                    {stock.patternName}
+                  </p>
+                </div>
+
+                {/* Trader Key Levels Grid */}
+                <div className="grid grid-cols-2 gap-1.5 text-[11px] font-mono pt-2 border-t border-slate-800/80 bg-slate-950/40 p-2 rounded-xl">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">建議買點</span>
+                    <span className="text-blue-300 font-bold">${stock.entryZoneLow}~${stock.entryZoneHigh}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">關鍵防守</span>
+                    <span className="text-amber-300 font-bold">${stock.stopLossPrice}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">第1目標價</span>
+                    <span className="text-emerald-400 font-bold">${stock.targetPrice1}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">風報比</span>
+                    <span className="text-purple-300 font-bold">{stock.riskRewardRatio}</span>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    onClick={() => setDetailStock(stock)}
+                    className="flex-1 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 hover:text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 border border-blue-500/30 transition-colors cursor-pointer"
+                  >
+                    <Sparkles size={12} className="text-amber-400" />
+                    <span>AI 形態研報 (看3月K線)</span>
+                  </button>
+                  <button
+                    onClick={() => onSelectStockForChart(stock.symbol, stock.name)}
+                    className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition-colors cursor-pointer"
+                    title="帶入即時看盤室"
+                  >
+                    <LineChart size={14} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
-      ) : (
-        /* PROFESSIONAL TRADING TABLE FOR MOBILE & DESKTOP */
-        <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-          {/* Mobile Swipe Hint Banner */}
-          <div className="sm:hidden px-3 py-2 bg-slate-950/90 border-b border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
-            <span className="flex items-center gap-1">
-              <Sparkles size={11} className="text-blue-400" />
-              點擊任一標的查看 <strong>AI 深度分析研報</strong>
-            </span>
-            <span className="text-[10px] text-slate-500">可左右滑動檢視更多數據 ➔</span>
-          </div>
+      )}
 
+      {/* 6. Top 20 標的展示：表格模式 (Matrix Table View) - 支援手機首欄凍結滑動 */}
+      {viewMode === 'table' && (
+        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
           <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-700">
-            <table className="w-full text-left text-xs whitespace-nowrap">
-              <thead className="bg-slate-950/90 text-slate-400 font-semibold border-b border-slate-800 text-[11px] tracking-wider uppercase select-none">
+            <table className="w-full text-left text-xs whitespace-nowrap border-collapse">
+              <thead className="bg-slate-950/90 text-slate-400 font-semibold border-b border-slate-800 text-[11px] font-mono select-none">
                 <tr>
-                  {/* Rank Column */}
-                  <th
-                    onClick={() => handleSort('rank')}
-                    className="py-3 px-3 text-center cursor-pointer hover:text-white transition-colors w-12"
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      <span>排名</span>
-                      {sortField === 'rank' ? (
-                        sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                      ) : (
-                        <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                      )}
-                    </div>
+                  <th className="py-3 px-3.5 sticky left-0 bg-slate-950 z-20 shadow-md border-r border-slate-800 min-w-[160px]">
+                    標的 (排行)
                   </th>
-
-                  {/* Stock Name & Symbol Column */}
-                  <th className="py-3 px-3 min-w-[150px]">
-                    <div className="flex items-center gap-1.5">
-                      <span>科技標的 / 產業賽道</span>
-                    </div>
-                  </th>
-
-                  {/* Current Price Column */}
-                  <th
-                    onClick={() => handleSort('currentPrice')}
-                    className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[75px]"
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      <span>現價</span>
-                      {sortField === 'currentPrice' ? (
-                        sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                      ) : (
-                        <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                      )}
-                    </div>
-                  </th>
-
-                  {/* Change Percent Column */}
-                  <th
-                    onClick={() => handleSort('changePercent')}
-                    className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[75px]"
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      <span>漲跌幅</span>
-                      {sortField === 'changePercent' ? (
-                        sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                      ) : (
-                        <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                      )}
-                    </div>
-                  </th>
-
-                  {/* AI Competitiveness Columns */}
-                  {(metricGroup === 'ALL' || metricGroup === 'PROFITABILITY') && (
-                    <>
-                      <th
-                        onClick={() => handleSort('competitivenessScore')}
-                        className="py-3 px-3 text-center cursor-pointer hover:text-white transition-colors min-w-[140px]"
-                        title="AI 產業競爭力評級與同業賽道對比"
-                      >
-                        <div className="flex items-center justify-center gap-1">
-                          <Award size={12} className="text-amber-400" />
-                          <span>AI 產業競爭力</span>
-                          {sortField === 'competitivenessScore' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('grossMargin')}
-                        className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[85px]"
-                        title="最新單季毛利率"
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          <span className="text-purple-300">最新毛利</span>
-                          {sortField === 'grossMargin' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('roe')}
-                        className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[75px]"
-                        title="當季年化股東權益報酬率 ROE"
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          <span className="text-cyan-300">ROE</span>
-                          {sortField === 'roe' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('roic')}
-                        className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[75px]"
-                        title="資本回報率 ROIC"
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          <span className="text-emerald-300">ROIC</span>
-                          {sortField === 'roic' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                    </>
-                  )}
-
-                  {/* Growth & Debt Health Columns */}
-                  {(metricGroup === 'ALL' || metricGroup === 'GROWTH_DEBT') && (
-                    <>
-                      <th
-                        onClick={() => handleSort('revenueGrowthScore')}
-                        className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[85px]"
-                        title="營收年增率動能"
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          <span className="text-amber-400">營收YoY</span>
-                          {sortField === 'revenueGrowthScore' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('expectedGrowthRate')}
-                        className="py-3 px-3 text-right cursor-pointer hover:text-white transition-colors min-w-[90px]"
-                        title="市場預估次年度獲利成長率"
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          <span>預期成長</span>
-                          {sortField === 'expectedGrowthRate' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('debtHealthScore')}
-                        className="py-3 px-3 text-center cursor-pointer hover:text-white transition-colors min-w-[110px]"
-                        title="負債比率結構與財務安全評等"
-                      >
-                        <div className="flex items-center justify-center gap-1">
-                          <ShieldCheck size={12} className="text-blue-400" />
-                          <span>負債健康度</span>
-                          {sortField === 'debtHealthScore' ? (
-                            sortOrder === 'asc' ? <ArrowUp size={11} className="text-blue-400" /> : <ArrowDown size={11} className="text-blue-400" />
-                          ) : (
-                            <ArrowUpDown size={11} className="text-slate-600 opacity-60" />
-                          )}
-                        </div>
-                      </th>
-                    </>
-                  )}
-
-                  {/* Core Future Risks Column */}
-                  {metricGroup === 'ALL' && (
-                    <th className="py-3 px-3 min-w-[160px] text-slate-400">
-                      <div className="flex items-center gap-1">
-                        <AlertTriangle size={12} className="text-rose-400" />
-                        <span>未來主要風險</span>
-                      </div>
-                    </th>
-                  )}
-
-                  {/* Action Column */}
-                  <th className="py-3 px-3 text-center min-w-[110px]">
-                    <span>AI 研報 / 看盤</span>
-                  </th>
+                  <th className="py-3 px-3 text-right">現價 / 漲跌</th>
+                  <th className="py-3 px-3 text-right">放量暴增倍數</th>
+                  <th className="py-3 px-3 text-right">今日量 / 20日均量</th>
+                  <th className="py-3 px-3 text-center">AI 形態研判</th>
+                  <th className="py-3 px-3 text-center">起漲階段</th>
+                  <th className="py-3 px-3 text-center">建議買進區間</th>
+                  <th className="py-3 px-3 text-center">關鍵防守價</th>
+                  <th className="py-3 px-3 text-center">第1目標價</th>
+                  <th className="py-3 px-3 text-center">風報比</th>
+                  <th className="py-3 px-3 text-center min-w-[130px]">操盤操作</th>
                 </tr>
               </thead>
-
-              <tbody className="divide-y divide-slate-800/80 font-mono">
-                {filteredList.map(stock => {
-                  const ai = stock.aiAnalysis;
-                  const isUp = stock.change > 0;
-                  const isDown = stock.change < 0;
-
+              <tbody className="divide-y divide-slate-800/80 font-mono text-xs">
+                {filteredStocks.map(stock => {
+                  const isUp = stock.changePercent >= 0;
                   return (
                     <tr
                       key={stock.symbol}
                       onClick={() => setDetailStock(stock)}
-                      className="hover:bg-slate-800/60 transition-colors cursor-pointer group"
+                      className="hover:bg-slate-800/50 transition-colors cursor-pointer group"
                     >
-                      {/* Rank */}
-                      <td className="py-3 px-3 text-center">
+                      {/* 凍結首欄 */}
+                      <td className="py-3 px-3.5 sticky left-0 bg-slate-950 group-hover:bg-slate-900 z-10 shadow-md border-r border-slate-800/80 font-sans">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-slate-800 text-amber-400 font-mono font-bold text-[10px] flex items-center justify-center shrink-0">
+                            {stock.rank}
+                          </span>
+                          <div>
+                            <div className="font-extrabold text-white text-xs group-hover:text-blue-400 transition-colors flex items-center gap-1">
+                              <span>{stock.name}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">({stock.code})</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 truncate max-w-[120px]">
+                              {stock.sector}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* 現價 */}
+                      <td className="py-3 px-3 text-right">
+                        <div className="font-bold text-white">${stock.currentPrice}</div>
+                        <div className="flex items-center justify-end gap-1 text-[10px] font-semibold">
+                          <span className={isUp ? 'text-emerald-400' : 'text-rose-400'}>
+                            {isUp ? '+' : ''}{stock.changePercent}%
+                          </span>
+                          {stock.oneMonthReturn != null && (
+                            <span className={`px-1 py-0.2 rounded text-[9px] ${
+                              stock.oneMonthReturn >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                            }`}>
+                              月 {stock.oneMonthReturn >= 0 ? '+' : ''}{stock.oneMonthReturn}%
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* 放量倍數 */}
+                      <td className="py-3 px-3 text-right">
                         <span
-                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
-                            stock.rank === 1
-                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
-                              : stock.rank === 2
-                              ? 'bg-slate-300/20 text-slate-200 border border-slate-300/40'
-                              : stock.rank === 3
-                              ? 'bg-amber-700/20 text-amber-500 border border-amber-700/40'
-                              : 'text-slate-400'
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            stock.volumeSurgeStatus === 'EXPLOSIVE'
+                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                           }`}
                         >
-                          {stock.rank}
+                          {stock.volumeSurgeLabel}
                         </span>
                       </td>
 
-                      {/* Stock Name & Symbol */}
-                      <td className="py-3 px-3 font-sans">
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-bold text-white group-hover:text-blue-400 transition-colors text-xs sm:text-sm">
-                              {stock.name}
-                            </span>
-                            <span className="font-mono text-xs text-slate-400">
-                              {stock.code}
-                            </span>
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700/60">
-                              {stock.sector}
-                            </span>
-                          </div>
-                          <span className="text-[11px] text-slate-400 truncate max-w-[200px] mt-0.5">
-                            {stock.subCategory}
-                          </span>
-                        </div>
+                      {/* 今日量 / 20日均量 */}
+                      <td className="py-3 px-3 text-right text-slate-300">
+                        <div>{(stock.volumeToday / 1000).toFixed(1)}k 張</div>
+                        <div className="text-[10px] text-slate-500">均 {(stock.volumeMa20 / 1000).toFixed(1)}k</div>
                       </td>
 
-                      {/* Current Price */}
-                      <td className="py-3 px-3 text-right font-bold text-slate-100 text-xs sm:text-sm">
-                        ${stock.currentPrice}
+                      {/* AI 形態 */}
+                      <td className="py-3 px-3 text-center font-sans">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                          {stock.patternTag} ({stock.patternScore}分)
+                        </span>
                       </td>
 
-                      {/* Change Percent */}
-                      <td className="py-3 px-3 text-right">
-                        <div
-                          className={`inline-flex items-center gap-0.5 font-bold ${
-                            isUp
-                              ? 'text-rose-400'
-                              : isDown
-                              ? 'text-emerald-400'
-                              : 'text-slate-400'
-                          }`}
-                        >
-                          {isUp ? (
-                            <TrendingUp size={11} />
-                          ) : isDown ? (
-                            <TrendingDown size={11} />
-                          ) : null}
-                          <span>
-                            {isUp ? '+' : ''}
-                            {stock.changePercent.toFixed(2)}%
-                          </span>
-                        </div>
+                      {/* 起漲階段 */}
+                      <td className="py-3 px-3 text-center font-sans">
+                        <span className="text-[11px] text-emerald-400 font-semibold">
+                          {stock.breakoutStageLabel}
+                        </span>
                       </td>
 
-                      {/* AI Competitiveness & Profitability */}
-                      {(metricGroup === 'ALL' || metricGroup === 'PROFITABILITY') && (
-                        <>
-                          <td className="py-3 px-3 text-center font-sans">
-                            <div className="flex flex-col items-center gap-0.5">
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap ${
-                                  ai?.competitivenessBadgeClass || 'bg-slate-800 text-slate-300'
-                                }`}
-                              >
-                                {ai?.competitivenessLabel || '領先強勢'}
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                評分: {ai?.competitivenessScore ?? 80}分
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-3 px-3 text-right text-purple-300 font-semibold">
-                            {stock.quarters[0]?.grossMargin}%
-                          </td>
-                          <td className="py-3 px-3 text-right text-cyan-300 font-semibold">
-                            {stock.quarters[0]?.roe}%
-                          </td>
-                          <td className="py-3 px-3 text-right text-emerald-300 font-bold">
-                            {stock.quarters[0]?.roic}%
-                          </td>
-                        </>
-                      )}
+                      {/* 買點區間 */}
+                      <td className="py-3 px-3 text-center text-blue-300 font-bold">
+                        ${stock.entryZoneLow} ~ ${stock.entryZoneHigh}
+                      </td>
 
-                      {/* Growth & Debt Health */}
-                      {(metricGroup === 'ALL' || metricGroup === 'GROWTH_DEBT') && (
-                        <>
-                          <td className="py-3 px-3 text-right">
-                            <span
-                              className={`font-semibold ${
-                                (stock.quarters[0]?.revenueYoY ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                              }`}
-                            >
-                              {(stock.quarters[0]?.revenueYoY ?? 0) >= 0 ? '+' : ''}
-                              {stock.quarters[0]?.revenueYoY}%
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-right text-amber-300 font-bold">
-                            +{stock.expectedGrowthRate}%
-                          </td>
-                          <td className="py-3 px-3 text-center font-sans">
-                            <div className="flex flex-col items-center gap-0.5">
-                              <span
-                                className={`px-2 py-0.2 rounded-full text-[10px] font-bold border whitespace-nowrap ${
-                                  ai?.debtHealthBadgeClass || 'bg-slate-800 text-slate-300'
-                                }`}
-                              >
-                                {ai?.debtHealthStatusLabel || '財務安全'}
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                負債 {stock.quarters[0]?.debtRatio}%
-                              </span>
-                            </div>
-                          </td>
-                        </>
-                      )}
+                      {/* 防守價 */}
+                      <td className="py-3 px-3 text-center text-amber-300 font-bold">
+                        ${stock.stopLossPrice}
+                      </td>
 
-                      {/* Core Future Risks */}
-                      {metricGroup === 'ALL' && (
-                        <td className="py-3 px-3 font-sans max-w-[220px]">
-                          <div className="flex items-center gap-1.5 text-[11px] text-slate-300 truncate" title={ai?.futureRisks?.[0] || '景氣循環波動'}>
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" />
-                            <span className="truncate">{ai?.futureRisks?.[0] || '全球終端景氣循環與地緣政治關稅波動'}</span>
-                          </div>
-                        </td>
-                      )}
+                      {/* 目標價 */}
+                      <td className="py-3 px-3 text-center text-emerald-400 font-bold">
+                        ${stock.targetPrice1} (+{stock.upsidePotentialPercent}%)
+                      </td>
 
-                      {/* Action Buttons */}
+                      {/* 風報比 */}
+                      <td className="py-3 px-3 text-center text-purple-300 font-bold">
+                        {stock.riskRewardRatio}
+                      </td>
+
+                      {/* 操盤操作 */}
                       <td className="py-3 px-3 text-center" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1.5">
                           <button
                             onClick={() => setDetailStock(stock)}
                             className="px-2 py-1 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 hover:text-white rounded text-[11px] font-semibold flex items-center gap-1 transition-colors border border-blue-500/30 cursor-pointer"
-                            title="開啟 AI Agent 專業研報"
+                            title="開啟 3 個月 K 線形態研報"
                           >
                             <Sparkles size={11} className="text-amber-400" />
-                            <span>AI 研報</span>
+                            <span>形態研報</span>
                           </button>
                           <button
                             onClick={() => onSelectStockForChart(stock.symbol, stock.name)}
@@ -1143,15 +728,13 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
         </div>
       )}
 
-      {/* AI Deep Financial Analysis Modal */}
+      {/* 7. AI 3 個月 K 線圖形態研報彈窗 (AiVolumeBreakoutModal) */}
       {detailStock && (
-        <AiFinancialReportModal
-          stock={detailStock.aiAnalysis}
+        <AiVolumeBreakoutModal
+          stock={detailStock}
           isOpen={!!detailStock}
           onClose={() => setDetailStock(null)}
           onSelectStockForChart={onSelectStockForChart}
-          onRefreshAnalysis={handleRefreshSingleStockAnalysis}
-          isRefreshing={isRefreshingDetail}
         />
       )}
     </div>
