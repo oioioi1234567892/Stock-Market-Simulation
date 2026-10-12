@@ -330,8 +330,8 @@ export default function App() {
             ? 'flex flex-col gap-3.5 sm:gap-4'
             : 'hidden'
         }`}>
-          {/* Real-time Quote Summary Banner */}
-          <div className="flex flex-col gap-2">
+          {/* Real-time Quote Summary Banner - 手機端在自選池頁面不顯示此卡片，純粹呈現自選清單 */}
+          <div className={`flex flex-col gap-2 ${activeMobileTab === 'watchlist' ? 'hidden sm:flex' : 'flex'}`}>
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <span className="text-xs text-slate-300 flex items-center gap-1.5 font-medium">
                 <span className="relative flex h-2 w-2">

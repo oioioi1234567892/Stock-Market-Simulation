@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import YahooFinance from 'yahoo-finance2';
 import dotenv from 'dotenv';
-import { POPULAR_TAIWAN_STOCKS, resolveTaiwanSymbol } from '../data/taiwanStocks.ts';
+import { POPULAR_TAIWAN_STOCKS, resolveTaiwanSymbol, searchTaiwanStocks } from '../data/taiwanStocks.ts';
 import { calculateIndicators } from '../utils/indicators.ts';
 import { CandleData } from '../types/stock.ts';
 import { generateFallbackCandles, generateFallbackQuote } from '../services/clientStockFallback.ts';
@@ -173,29 +173,14 @@ async function fetchCandlesFromYahoo(
   return [];
 }
 
-// 1. Search Taiwan stocks
-app.get('/api/stocks/search', (req: Request, res: Response) => {
-  const query = String(req.query.q || '').trim().toLowerCase();
+// 1. Search Taiwan stocks (支援全台股代號、名稱、別名、含括號代號搜尋)
+app.get('/api/stocks/search', async (req: Request, res: Response) => {
+  const query = String(req.query.q || '').trim();
   if (!query) {
-    return res.json(POPULAR_TAIWAN_STOCKS.slice(0, 15));
+    return res.json(POPULAR_TAIWAN_STOCKS.slice(0, 20));
   }
-  const filtered = POPULAR_TAIWAN_STOCKS.filter(
-    s => s.code.toLowerCase().includes(query) || s.name.toLowerCase().includes(query) || s.symbol.toLowerCase().includes(query) || s.aliases?.some(a => a.toLowerCase().includes(query))
-  );
-
-  if (filtered.length === 0) {
-    const resolved = resolveTaiwanSymbol(query);
-    return res.json([
-      {
-        code: resolved.symbol.replace(/\.TW(O)?/, ''),
-        name: resolved.name,
-        symbol: resolved.symbol,
-        market: resolved.market,
-        category: '自選個股',
-      },
-    ]);
-  }
-  res.json(filtered);
+  const results = searchTaiwanStocks(query);
+  res.json(results);
 });
 
 // 2. Real-time quote for a stock directly from Yahoo Finance

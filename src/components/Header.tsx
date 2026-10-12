@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { POPULAR_TAIWAN_STOCKS, TaiwanStockInfo, resolveTaiwanSymbol } from '../data/taiwanStocks.ts';
+import { POPULAR_TAIWAN_STOCKS, TaiwanStockInfo, resolveTaiwanSymbol, searchTaiwanStocks } from '../data/taiwanStocks.ts';
 import { Search, TrendingUp, ShieldCheck, Sparkles } from 'lucide-react';
 
 interface HeaderProps {
@@ -39,15 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const marketStatus = getMarketStatus();
 
-  const lowerQuery = query.toLowerCase().trim();
-  const filteredStocks = lowerQuery
-    ? POPULAR_TAIWAN_STOCKS.filter(
-        s => s.code.toLowerCase().includes(lowerQuery) ||
-             s.name.toLowerCase().includes(lowerQuery) ||
-             s.symbol.toLowerCase().includes(lowerQuery) ||
-             s.aliases?.some(a => a.toLowerCase().includes(lowerQuery))
-      )
-    : POPULAR_TAIWAN_STOCKS.slice(0, 10);
+  const filteredStocks = searchTaiwanStocks(query).slice(0, 10);
 
   const handlePickStock = (s: TaiwanStockInfo) => {
     // Dismiss mobile soft keyboard
@@ -65,19 +57,8 @@ export const Header: React.FC<HeaderProps> = ({
     if (typeof document !== 'undefined') {
       (document.activeElement as HTMLElement)?.blur();
     }
-    const clean = query.trim().toUpperCase();
-    const matched = POPULAR_TAIWAN_STOCKS.find(
-      s => s.code.toUpperCase() === clean ||
-           s.name === query.trim() ||
-           s.symbol.toUpperCase() === clean ||
-           s.aliases?.some(a => a.toUpperCase() === clean || a === query.trim())
-    );
-    if (matched) {
-      onSelectStock(matched.symbol, matched.name);
-    } else {
-      const resolved = resolveTaiwanSymbol(query);
-      onSelectStock(resolved.symbol, resolved.name);
-    }
+    const resolved = resolveTaiwanSymbol(query);
+    onSelectStock(resolved.symbol, resolved.name);
     setSearchOpen(false);
     setQuery('');
   };
@@ -253,7 +234,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           <div className="max-h-56 overflow-y-auto mt-2 divide-y divide-slate-800/60 bg-slate-900 rounded-xl border border-slate-800 shadow-xl">
             <div className="p-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-950/60 flex items-center justify-between">
-              <span>{lowerQuery ? '搜尋結果' : '熱門標的快速選股'}</span>
+              <span>{query.trim() ? '搜尋結果' : '熱門標的快速選股'}</span>
               <span className="text-[10px] text-slate-500 font-normal">點選立即載入圖表</span>
             </div>
             {filteredStocks.map(stock => (

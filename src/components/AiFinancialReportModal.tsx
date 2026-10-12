@@ -97,7 +97,7 @@ export const AiFinancialReportModal: React.FC<AiFinancialReportModalProps> = ({
               </div>
               <span className="text-[11px] text-slate-400 font-mono">
                 現價: <strong className="text-slate-200">${stock.currentPrice}</strong> · 漲跌幅:{' '}
-                <strong className={isUp ? 'text-emerald-400' : 'text-rose-400'}>
+                <strong className={isUp ? 'text-rose-400' : 'text-emerald-400'}>
                   {isUp ? '+' : ''}{stock.changePercent}%
                 </strong> · {stock.peerRankText}
               </span>
@@ -256,7 +256,7 @@ export const AiFinancialReportModal: React.FC<AiFinancialReportModalProps> = ({
                           <td
                             key={idx}
                             className={`py-2.5 px-3 text-right font-bold ${
-                              isPos ? 'text-emerald-400' : 'text-rose-400'
+                              isPos ? 'text-rose-400' : 'text-emerald-400'
                             } ${idx === 0 ? 'bg-blue-950/20' : ''}`}
                           >
                             {isPos ? '+' : ''}{q.revenueYoY.toFixed(1)}%
@@ -539,7 +539,7 @@ export const AiFinancialReportModal: React.FC<AiFinancialReportModalProps> = ({
             <div className="grid grid-cols-2 gap-2 py-1 text-center font-mono">
               <div className="bg-slate-900/80 p-2 rounded-lg border border-slate-800">
                 <span className="text-[10px] text-slate-400 block font-sans">最新季營收年增率 (YoY)</span>
-                <span className={`text-sm font-bold ${stock.revenueLatestYoY >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                <span className={`text-sm font-bold ${stock.revenueLatestYoY >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                   {stock.revenueLatestYoY >= 0 ? '+' : ''}{stock.revenueLatestYoY}%
                 </span>
               </div>

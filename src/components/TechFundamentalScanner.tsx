@@ -505,7 +505,7 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                     <div className="flex items-center justify-end gap-1 mb-0.5">
                       {stock.oneMonthReturn != null && (
                         <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                          stock.oneMonthReturn >= 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'
+                          stock.oneMonthReturn >= 0 ? 'bg-rose-500/15 text-rose-300' : 'bg-emerald-500/15 text-emerald-300'
                         }`}>
                           近1月 {stock.oneMonthReturn >= 0 ? '+' : ''}{stock.oneMonthReturn}%
                         </span>
@@ -513,10 +513,10 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                     </div>
                     <div
                       className={`text-sm font-black font-mono flex items-center justify-end gap-0.5 ${
-                        isUp ? 'text-emerald-400' : 'text-rose-400'
+                        isUp ? 'text-rose-400' : 'text-emerald-400'
                       }`}
                     >
-                      {isUp ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+                      {isUp ? <TrendingUp size={13} className="text-rose-400" /> : <TrendingDown size={13} className="text-emerald-400" />}
                       <span>今日 {isUp ? '+' : ''}{stock.changePercent}%</span>
                     </div>
                   </div>
@@ -633,12 +633,12 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                       <td className="py-3 px-3 text-right">
                         <div className="font-bold text-white">${stock.currentPrice}</div>
                         <div className="flex items-center justify-end gap-1 text-[10px] font-semibold">
-                          <span className={isUp ? 'text-emerald-400' : 'text-rose-400'}>
+                          <span className={isUp ? 'text-rose-400' : 'text-emerald-400'}>
                             {isUp ? '+' : ''}{stock.changePercent}%
                           </span>
                           {stock.oneMonthReturn != null && (
                             <span className={`px-1 py-0.2 rounded text-[9px] ${
-                              stock.oneMonthReturn >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                              stock.oneMonthReturn >= 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'
                             }`}>
                               月 {stock.oneMonthReturn >= 0 ? '+' : ''}{stock.oneMonthReturn}%
                             </span>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { WatchlistItem, StrategyConfig, CandleData, StockStrategySignal, StrategySignalStatus } from '../types/stock.ts';
 import { getWatchlist, addWatchlist, deleteWatchlist, getBacktestRecords, deleteBacktest, fetchBatchCandles, BatchCandlesItem } from '../services/api.ts';
-import { POPULAR_TAIWAN_STOCKS } from '../data/taiwanStocks.ts';
+import { POPULAR_TAIWAN_STOCKS, TaiwanStockInfo, resolveTaiwanSymbol, searchTaiwanStocks } from '../data/taiwanStocks.ts';
 import { runBacktest, evaluateStrategySignal, DEFAULT_STRATEGY } from '../utils/backtestEngine.ts';
 import { Plus, Trash2, Bookmark, History, Search, ArrowUpRight, ArrowDownRight, Sparkles, RefreshCw, Filter, TrendingUp, TrendingDown, Clock, ShieldCheck, Zap, CheckCircle2 } from 'lucide-react';
 
@@ -34,9 +34,59 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
   const [isAdding, setIsAdding] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedStockToAdd, setSelectedStockToAdd] = useState<{ symbol: string; name: string; market: string } | null>(null);
+  const [selectedQuote, setSelectedQuote] = useState<{ price: number; change: number; changePercent: number } | null>(null);
   const [targetBuy, setTargetBuy] = useState<string>('');
   const [targetSell, setTargetSell] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const handleSelectStockToAdd = async (stock: { symbol: string; name: string; market?: string }) => {
+    const market = stock.market || (stock.symbol.endsWith('.TWO') ? 'TPEx' : 'TWSE');
+    setSelectedStockToAdd({ symbol: stock.symbol, name: stock.name, market });
+    setSelectedQuote(null);
+    try {
+      const res = await fetch(`/api/stocks/${encodeURIComponent(stock.symbol)}/quote`);
+      if (res.ok) {
+        const q = await res.json();
+        if (q && q.price != null) {
+          if (q.name && (stock.name === stock.symbol.replace(/\.TW(O)?$/i, '') || !stock.name)) {
+            setSelectedStockToAdd({ symbol: stock.symbol, name: q.name, market });
+          }
+          setSelectedQuote({ price: q.price, change: q.change, changePercent: q.changePercent });
+          if (!targetBuy) {
+            setTargetBuy(Number((q.price * 0.96).toFixed(1)).toString());
+          }
+          if (!targetSell) {
+            setTargetSell(Number((q.price * 1.12).toFixed(1)).toString());
+          }
+        }
+      }
+    } catch (_) {}
+  };
+
+  // 當搜尋輸入為精確代號或唯一符合標的，自動選中並帶出最新即時報價
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) return;
+
+    const timer = setTimeout(() => {
+      const resolved = resolveTaiwanSymbol(q);
+      const isCodeOrParentheses = /^[0-9]{4,6}[A-Z]?$/i.test(q) || /[\(（][0-9A-Z]+[\)）]/.test(q);
+      const exactMatch = POPULAR_TAIWAN_STOCKS.find(
+        s => s.code.toUpperCase() === q.toUpperCase() || s.name === q
+      );
+
+      if (exactMatch || isCodeOrParentheses) {
+        handleSelectStockToAdd({
+          symbol: exactMatch ? exactMatch.symbol : resolved.symbol,
+          name: exactMatch ? exactMatch.name : resolved.name,
+          market: exactMatch ? exactMatch.market : resolved.market,
+        });
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Load Watchlist
   const loadWatchlist = async () => {
@@ -132,22 +182,81 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
     return watchlist.filter(w => signalsMap[w.symbol]?.status === statusFilter);
   }, [watchlist, signalsMap, statusFilter]);
 
-  // Handle Add
+  // 快捷一鍵新增 (點選候選股票直接加入自選清單)
+  const handleQuickAdd = async (stock: { symbol: string; name: string; market?: string }, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      let finalName = stock.name;
+      const finalSymbol = stock.symbol;
+      const finalMarket = stock.market || (finalSymbol.endsWith('.TWO') ? 'TPEx' : 'TWSE');
+
+      // 若名稱僅為純代號，自動向後台請求官方名稱
+      if (!finalName || finalName === finalSymbol.replace(/\.TW(O)?$/i, '')) {
+        try {
+          const quoteRes = await fetch(`/api/stocks/${encodeURIComponent(finalSymbol)}/quote`);
+          if (quoteRes.ok) {
+            const q = await quoteRes.json();
+            if (q?.name) finalName = q.name;
+          }
+        } catch (_) {}
+      }
+
+      const res = await addWatchlist({
+        symbol: finalSymbol,
+        name: finalName,
+        market: finalMarket,
+      });
+      if (res.item) {
+        setWatchlist(prev => [res.item, ...prev.filter(i => i.symbol !== res.item.symbol)]);
+        setToastMessage(`已成功將 ${res.item.name} (${res.item.symbol}) 加入自選清單！`);
+        setTimeout(() => setToastMessage(null), 3500);
+      }
+      setIsAdding(false);
+      resetAddForm();
+    } catch (err) {
+      console.error('Quick add error:', err);
+    }
+  };
+
+  // Handle Add (支援全台股新增：點選候選股票或直接輸入代號/名稱/括號格式)
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedStockToAdd) return;
+    let stockToAdd = selectedStockToAdd;
+    if (!stockToAdd && searchQuery.trim()) {
+      const resolved = resolveTaiwanSymbol(searchQuery.trim());
+      stockToAdd = {
+        symbol: resolved.symbol,
+        name: resolved.name,
+        market: resolved.market,
+      };
+    }
+    if (!stockToAdd) return;
 
     try {
+      let finalName = stockToAdd.name;
+      // 若名稱僅為代號，嘗試取得公司真實中文名
+      if (!finalName || finalName === stockToAdd.symbol.replace(/\.TW(O)?$/i, '')) {
+        try {
+          const quoteRes = await fetch(`/api/stocks/${encodeURIComponent(stockToAdd.symbol)}/quote`);
+          if (quoteRes.ok) {
+            const q = await quoteRes.json();
+            if (q?.name) finalName = q.name;
+          }
+        } catch (_) {}
+      }
+
       const res = await addWatchlist({
-        symbol: selectedStockToAdd.symbol,
-        name: selectedStockToAdd.name,
-        market: selectedStockToAdd.market,
+        symbol: stockToAdd.symbol,
+        name: finalName,
+        market: stockToAdd.market,
         targetBuyPrice: targetBuy || undefined,
         targetSellPrice: targetSell || undefined,
         notes: notes || undefined,
       });
       if (res.item) {
         setWatchlist(prev => [res.item, ...prev.filter(i => i.symbol !== res.item.symbol)]);
+        setToastMessage(`已成功將 ${res.item.name} (${res.item.symbol}) 加入自選清單！`);
+        setTimeout(() => setToastMessage(null), 3500);
       }
       setIsAdding(false);
       resetAddForm();
@@ -158,6 +267,7 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
 
   const resetAddForm = () => {
     setSelectedStockToAdd(null);
+    setSelectedQuote(null);
     setSearchQuery('');
     setTargetBuy('');
     setTargetSell('');
@@ -187,12 +297,10 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
     }
   };
 
-  // Filtered popular suggestions when adding
-  const searchResults = searchQuery
-    ? POPULAR_TAIWAN_STOCKS.filter(
-        s => s.code.includes(searchQuery) || s.name.includes(searchQuery) || s.symbol.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : POPULAR_TAIWAN_STOCKS.slice(0, 8);
+  // Filtered suggestions when adding: 支援全台股代號、名稱、別名、含括號代號搜尋
+  const searchResults = useMemo(() => {
+    return searchTaiwanStocks(searchQuery).slice(0, 16);
+  }, [searchQuery]);
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col text-slate-200">
@@ -243,6 +351,17 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
           </div>
         )}
       </div>
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="mx-3 mt-3 p-2.5 bg-emerald-950/90 border border-emerald-500/50 rounded-xl text-xs text-emerald-200 flex items-center justify-between shadow-lg animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
+            <span className="font-semibold">{toastMessage}</span>
+          </div>
+          <button onClick={() => setToastMessage(null)} className="text-slate-400 hover:text-white text-xs px-1">✕</button>
+        </div>
+      )}
 
       {/* Content Area */}
       <div className="p-3">
@@ -542,56 +661,146 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
 
       {/* Add Stock Dialog Modal */}
       {isAdding && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-4 flex flex-col gap-3">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <h3 className="font-bold text-slate-100 text-sm">新增自選股至投資組合</h3>
-              <button onClick={() => setIsAdding(false)} className="text-slate-400 hover:text-white">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-4 sm:p-5 flex flex-col gap-3 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+              <div>
+                <h3 className="font-bold text-slate-100 text-sm sm:text-base">新增台股自選標的</h3>
+                <p className="text-[11px] text-slate-400">支援全台股上市櫃所有股票、ETF、正二與反一標的</p>
+              </div>
+              <button onClick={() => { setIsAdding(false); resetAddForm(); }} className="text-slate-400 hover:text-white p-1">
                 ✕
               </button>
             </div>
 
             <form onSubmit={handleAddSubmit} className="flex flex-col gap-3">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">搜尋台股代號或名稱</label>
+                <label className="text-xs text-slate-300 font-medium block mb-1">搜尋台股代號或中文名稱</label>
                 <div className="relative">
-                  <Search size={14} className="absolute left-2.5 top-2.5 text-slate-500" />
+                  <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="輸入例如 2330、鴻海、0050"
+                    placeholder="輸入代號或名稱，如 6282、00685L、康舒、加權正2"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-100 placeholder-slate-500"
+                    className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-8 pr-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-hidden focus:border-blue-500"
+                    autoFocus
                   />
                 </div>
 
-                <div className="max-h-36 overflow-y-auto mt-1 border border-slate-800 rounded-lg bg-slate-950/60 divide-y divide-slate-800/60">
+                {/* 快捷推薦常用熱門標的 */}
+                <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                  <span className="text-[10px] text-slate-400">推薦快捷:</span>
+                  {[
+                    { code: '6282', name: '康舒', symbol: '6282.TW', market: 'TWSE' },
+                    { code: '00685L', name: '群益臺灣加權正2', symbol: '00685L.TW', market: 'TWSE' },
+                    { code: '2330', name: '台積電', symbol: '2330.TW', market: 'TWSE' },
+                    { code: '00631L', name: '元大台灣50正2', symbol: '00631L.TW', market: 'TWSE' },
+                    { code: '3013', name: '晟銘電', symbol: '3013.TW', market: 'TWSE' },
+                  ].map(s => (
+                    <button
+                      key={s.code}
+                      type="button"
+                      onClick={() => handleSelectStockToAdd(s)}
+                      className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                        selectedStockToAdd?.symbol === s.symbol
+                          ? 'bg-blue-600 text-white border-blue-400 font-bold'
+                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white'
+                      }`}
+                    >
+                      {s.name} ({s.code})
+                    </button>
+                  ))}
+                </div>
+
+                {/* 搜尋候選清單 */}
+                <div className="max-h-48 overflow-y-auto mt-2 border border-slate-800 rounded-lg bg-slate-950/80 divide-y divide-slate-800/60">
+                  {/* 若用戶有輸入自訂代號，置頂提供一鍵直接選取 */}
+                  {searchQuery.trim() && !searchResults.some(s => s.code.toUpperCase() === searchQuery.trim().toUpperCase()) && (
+                    <div
+                      onClick={() => {
+                        const resolved = resolveTaiwanSymbol(searchQuery.trim());
+                        handleSelectStockToAdd(resolved);
+                      }}
+                      className="p-2 text-xs flex items-center justify-between cursor-pointer bg-blue-950/30 hover:bg-blue-900/40 text-blue-200"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={12} className="text-yellow-400 shrink-0" />
+                        <span>以代號/名稱直接解析：「{searchQuery.trim()}」</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] bg-blue-900 text-blue-200 px-1.5 py-0.5 rounded">選定設定</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const resolved = resolveTaiwanSymbol(searchQuery.trim());
+                            handleQuickAdd(resolved, e);
+                          }}
+                          className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] transition-colors"
+                        >
+                          ＋直接加入
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {searchResults.map(stock => {
                     const isPicked = selectedStockToAdd?.symbol === stock.symbol;
                     return (
                       <div
                         key={stock.symbol}
-                        onClick={() => setSelectedStockToAdd(stock)}
-                        className={`p-2 text-xs flex items-center justify-between cursor-pointer ${
-                          isPicked ? 'bg-blue-900/40 text-blue-200 font-semibold' : 'hover:bg-slate-800/50 text-slate-300'
+                        onClick={() => handleSelectStockToAdd(stock)}
+                        className={`p-2 text-xs flex items-center justify-between cursor-pointer transition-colors ${
+                          isPicked ? 'bg-blue-900/50 text-blue-200 font-semibold' : 'hover:bg-slate-800/60 text-slate-300'
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <span>{stock.name}</span>
-                          <span className="text-[11px] text-slate-500 font-mono">{stock.symbol}</span>
+                          <span className="font-medium text-slate-100">{stock.name}</span>
+                          <span className="text-[11px] text-slate-400 font-mono">{stock.symbol}</span>
+                          <span className="text-[9px] text-slate-400 bg-slate-900 border border-slate-800 px-1 py-0.2 rounded">
+                            {stock.market}
+                          </span>
                         </div>
-                        <span className="text-[10px] text-slate-400 bg-slate-900 px-1 py-0.5 rounded">
-                          {stock.category}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400 bg-slate-900/80 px-1.5 py-0.5 rounded hidden sm:inline">
+                            {stock.category}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => handleQuickAdd(stock, e)}
+                            className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] shrink-0 transition-colors shadow-xs"
+                            title="一鍵直接加入自選清單"
+                          >
+                            ＋加入
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
                 </div>
               </div>
 
+              {/* 已選定標的與即時行情卡 */}
               {selectedStockToAdd && (
-                <div className="text-xs bg-blue-950/30 p-2 rounded border border-blue-900/50 text-blue-200">
-                  已選定: <strong>{selectedStockToAdd.name} ({selectedStockToAdd.symbol})</strong>
+                <div className="text-xs bg-blue-950/40 p-2.5 rounded-lg border border-blue-800/60 text-blue-200 flex items-center justify-between">
+                  <div>
+                    <span className="font-bold text-white text-sm">{selectedStockToAdd.name}</span>
+                    <span className="font-mono text-blue-300 ml-1.5">({selectedStockToAdd.symbol})</span>
+                    <span className="ml-1.5 text-[10px] px-1 py-0.2 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50">
+                      {selectedStockToAdd.market}
+                    </span>
+                  </div>
+                  {selectedQuote ? (
+                    <div className="font-mono text-right">
+                      <span className="font-bold text-white">${selectedQuote.price.toFixed(2)}</span>
+                      <span className={`text-[11px] ml-1.5 font-semibold ${selectedQuote.change >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                        {selectedQuote.change >= 0 ? `+${selectedQuote.changePercent}%` : `${selectedQuote.changePercent}%`}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] text-slate-400 animate-pulse">正在連線即時報價...</span>
+                  )}
                 </div>
               )}
 
@@ -600,22 +809,22 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
                   <label className="text-slate-400 block mb-1">目標買進價 (元)</label>
                   <input
                     type="number"
-                    step="0.1"
-                    placeholder="例如 980"
+                    step="0.01"
+                    placeholder="例如 43.5"
                     value={targetBuy}
                     onChange={e => setTargetBuy(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-slate-100"
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-slate-100 font-mono"
                   />
                 </div>
                 <div>
                   <label className="text-slate-400 block mb-1">目標停利價 (元)</label>
                   <input
                     type="number"
-                    step="0.1"
-                    placeholder="例如 1200"
+                    step="0.01"
+                    placeholder="例如 52.0"
                     value={targetSell}
                     onChange={e => setTargetSell(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-slate-100"
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-slate-100 font-mono"
                   />
                 </div>
               </div>
@@ -624,27 +833,31 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
                 <label className="text-xs text-slate-400 block mb-1">操盤備忘筆記</label>
                 <input
                   type="text"
-                  placeholder="例如: 季線附近逢低分批布局"
+                  placeholder="例如: 康舒電源轉型 / 群益正二槓桿操作"
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded p-1.5 text-xs text-slate-100"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 mt-2">
+              <div className="flex items-center justify-end gap-2 mt-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsAdding(false)}
+                  onClick={() => { setIsAdding(false); resetAddForm(); }}
                   className="px-3 py-1.5 text-xs text-slate-400 hover:text-white"
                 >
                   取消
                 </button>
                 <button
                   type="submit"
-                  disabled={!selectedStockToAdd}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg"
+                  disabled={!selectedStockToAdd && !searchQuery.trim()}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-sm transition-all"
                 >
-                  加入自選組合
+                  {selectedStockToAdd
+                    ? `確認加入自選 (${selectedStockToAdd.name})`
+                    : searchQuery.trim()
+                    ? `以「${searchQuery.trim()}」加入自選`
+                    : '請選擇或輸入股票'}
                 </button>
               </div>
             </form>

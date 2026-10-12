@@ -1,5 +1,5 @@
 import { StockQuote, CandleData, WatchlistItem } from '../types/stock.ts';
-import { TaiwanStockInfo, POPULAR_TAIWAN_STOCKS, resolveTaiwanSymbol } from '../data/taiwanStocks.ts';
+import { TaiwanStockInfo, POPULAR_TAIWAN_STOCKS, resolveTaiwanSymbol, searchTaiwanStocks } from '../data/taiwanStocks.ts';
 import { generateFallbackCandles, generateFallbackQuote } from './clientStockFallback.ts';
 import { MarketFinancialProgress, calculateMarketFinancialProgress } from '../utils/marketFinancialCalendar.ts';
 import { AiStockFinancialAnalysis } from '../types/aiFinancialAnalysis.ts';
@@ -35,24 +35,7 @@ export async function searchStocks(query: string): Promise<TaiwanStockInfo[]> {
   }
 
   // Client-side fallback search
-  if (!clean) {
-    return POPULAR_TAIWAN_STOCKS.slice(0, 15);
-  }
-  const filtered = POPULAR_TAIWAN_STOCKS.filter(
-    s => s.code.includes(clean) || s.name.toLowerCase().includes(clean) || s.symbol.toLowerCase().includes(clean)
-  );
-  if (filtered.length > 0) return filtered;
-
-  const resolved = resolveTaiwanSymbol(clean);
-  return [
-    {
-      code: resolved.symbol.replace(/\.TW(O)?/, ''),
-      name: resolved.name,
-      symbol: resolved.symbol,
-      market: resolved.market,
-      category: '自選個股',
-    },
-  ];
+  return searchTaiwanStocks(query);
 }
 
 /**
