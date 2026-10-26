@@ -295,6 +295,11 @@ export function resolveTaiwanSymbol(input: string): { symbol: string; name: stri
   const raw = decoded;
   const clean = raw.toUpperCase();
 
+  // 0. 特殊指數標的 (加權指數 ^TWII)
+  if (clean === '^TWII' || clean.includes('加權指數') || clean.includes('大盤')) {
+    return { symbol: '^TWII', name: '加權指數', market: 'TWSE' };
+  }
+
   // 1. 如果輸入含有括號代號，如「康舒(6282)」、「群益台灣加權正二(00685L)」
   const bracketMatch = raw.match(/[\(（]([0-9]{4,6}[A-Z]?)[\)）]/i);
   if (bracketMatch) {

@@ -280,3 +280,50 @@ export interface FundamentalRecommendation {
   latestRevenueMoM: number;
   highlights: string[];
 }
+
+// ==========================================
+// 大盤融資維持率與槓桿風險分析型別定義
+// ==========================================
+
+export type LeverageRiskLevel =
+  | 'PANIC_BOTTOM'          // 斷頭多殺多風暴區 (< 130%)
+  | 'MARGIN_CALL_WARNING'   // 追繳警戒區 (130% ~ 140%)
+  | 'HEALTHY_DELEVERAGING'  // 降槓桿健康整理區 (140% ~ 160%)
+  | 'BULL_EXPANSION'        // 強勢多頭推升區 (160% ~ 170%)
+  | 'OVERHEATED_DANGER';    // 融資過熱超買警戒區 (> 170%)
+
+export interface DailyMarketMarginPoint {
+  date: string; // YYYY-MM-DD
+  taiexClose: number; // 台灣加權指數收盤點數
+  taiexChange: number; // 點數漲跌
+  taiexChangePct: number; // 漲跌幅 %
+  taiexVolume: number; // 大盤成交量或成交金額 (億元)
+  marginMaintenanceRatio: number; // 大盤融資維持率 % (e.g. 158.4)
+  marginBalance: number; // 全市場融資餘額 (億元) (e.g. 3120.5)
+  marginBalanceChange: number; // 融資餘額當日增減 (億元)
+  riskLevel: LeverageRiskLevel;
+}
+
+export interface MarketMarginSummary {
+  latestDate: string;
+  currentTaiex: number;
+  taiexChange: number;
+  taiexChangePct: number;
+  currentMaintenanceRatio: number;
+  ratioChange: number; // vs 前日維持率增減百分比
+  currentMarginBalance: number; // 全市場融資餘額 (億元)
+  marginBalanceChange: number; // 融資日增減 (億元)
+  riskLevel: LeverageRiskLevel;
+  riskTitle: string;
+  riskDescription: string;
+  riskBadgeColor: string;
+  // 操盤手極限壓力測試 (Stress Test)
+  pointsDropTo140Warning: number; // 距 140% 追繳警戒線尚可承受跌點 (點)
+  percentDropTo140Warning: number; // 距 140% 追繳警戒線尚可承受跌幅 (%)
+  pointsDropTo130Liquidation: number; // 距 130% 斷頭萬箭齊發線尚可承受跌點 (點)
+  percentDropTo130Liquidation: number; // 距 130% 斷頭線尚可承受跌幅 (%)
+  historicalHighRatio: number;
+  historicalLowRatio: number;
+  series: DailyMarketMarginPoint[];
+}
+

@@ -25,6 +25,8 @@ import {
 import { BreakoutStockCandidate } from '../types/volumeBreakout.ts';
 import { CandleData } from '../types/stock.ts';
 import { fetchStockHistory } from '../services/api.ts';
+import { detectRealKLinePatternAndVerdict } from '../utils/aiVolumeBreakoutEngine.ts';
+import { calculateIndicators } from '../utils/indicators.ts';
 
 interface AiVolumeBreakoutModalProps {
   stock: BreakoutStockCandidate | null;
@@ -67,17 +69,20 @@ export const AiVolumeBreakoutModal: React.FC<AiVolumeBreakoutModalProps> = ({
     try {
       const res = await fetchStockHistory(stock.symbol, '3mo', '1d', forceRefresh);
       if (res && res.candles && res.candles.length > 0) {
-        setCandles(res.candles);
+        const enriched = calculateIndicators(res.candles);
+        setCandles(enriched);
         setDataSource('yfinance-live');
         const now = new Date();
         setLastSyncTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`);
       } else if (stock.candles3Mo && stock.candles3Mo.length > 0) {
-        setCandles(stock.candles3Mo);
+        const enriched = calculateIndicators(stock.candles3Mo);
+        setCandles(enriched);
         setDataSource('fallback');
       }
     } catch {
       if (stock.candles3Mo && stock.candles3Mo.length > 0) {
-        setCandles(stock.candles3Mo);
+        const enriched = calculateIndicators(stock.candles3Mo);
+        setCandles(enriched);
         setDataSource('fallback');
       }
     } finally {
@@ -89,37 +94,43 @@ export const AiVolumeBreakoutModal: React.FC<AiVolumeBreakoutModalProps> = ({
   useEffect(() => {
     if (isOpen && stock?.symbol) {
       if (stock.candles3Mo && stock.candles3Mo.length > 0) {
-        setCandles(stock.candles3Mo);
+        setCandles(calculateIndicators(stock.candles3Mo));
       }
       fetchRealYfinanceCandles(false);
     }
   }, [isOpen, stock?.symbol]);
 
-  // 頂級操盤手演算法：基於真實 3 個月 K 線數據進行動態量化推估
+  // 頂級操盤手演算法：基於真實 3 個月 K 線數據進行動態量化推估 (嚴格與真實K線吻合)
   const analysis = useMemo(() => {
-    const list = candles && candles.length > 0 ? candles : (stock?.candles3Mo || []);
-    if (list.length === 0) {
+    const rawList = candles && candles.length > 0 ? candles : (stock?.candles3Mo || []);
+    if (!rawList || rawList.length === 0 || !stock) {
       return {
         candlesCount: 0,
         currentPrice: stock?.currentPrice || 100,
         change: stock?.change || 0,
         changePercent: stock?.changePercent || 0,
-        threeMonthHigh: stock?.currentPrice || 100,
-        threeMonthLow: stock?.currentPrice || 100,
-        volumeToday: stock?.volumeToday || 0,
-        volumeMa20: stock?.volumeMa20 || 1,
-        volumeSurgeRatio: stock?.volumeSurgeRatio || 1.5,
+        threeMonthHigh: stock?.currentPrice ? stock.currentPrice * 1.15 : 115,
+        threeMonthLow: stock?.currentPrice ? stock.currentPrice * 0.88 : 88,
+        volumeToday: stock?.volumeToday || 10000,
+        volumeMa20: stock?.volumeMa20 || 5000,
+        volumeSurgeRatio: stock?.volumeSurgeRatio || 1.8,
         breakoutPrice: stock?.breakoutPrice || 100,
         entryZoneLow: stock?.entryZoneLow || 98,
-        entryZoneHigh: stock?.entryZoneHigh || 102,
+        entryZoneHigh: stock?.entryZoneHigh || 103,
         stopLossPrice: stock?.stopLossPrice || 94,
         targetPrice1: stock?.targetPrice1 || 115,
-        targetPrice2: stock?.targetPrice2 || 128,
-        upsidePotentialPercent: stock?.upsidePotentialPercent || 15,
-        upsidePotentialPercent2: 28,
+        targetPrice2: stock?.targetPrice2 || 125,
+        upsidePotentialPercent: stock?.upsidePotentialPercent || 15.0,
+        upsidePotentialPercent2: 24.5,
         riskRewardRatio: stock?.riskRewardRatio || '1 : 3.5',
         riskPercent: 5.2,
+        patternType: stock?.patternType || 'MA_CONVERGENCE_BOX',
+        patternName: stock?.patternName || '均線糾結帶量突破',
+        patternBiasLabel: 'MA 緊密收斂出量表態',
+        patternAnalysis: stock?.patternAnalysis || '',
         aiTraderVerdict: stock?.aiTraderVerdict || '',
+        patternScore: stock?.patternScore || 90,
+        breakoutStageLabel: stock?.breakoutStageLabel || '首根突破',
         consolidationDays: stock?.consolidationDays || 20,
         maConvergencePercent: stock?.maConvergencePercent || 1.2,
         firstDate: '',
@@ -130,109 +141,64 @@ export const AiVolumeBreakoutModal: React.FC<AiVolumeBreakoutModalProps> = ({
         ma20: stock?.currentPrice || 100,
         ma60: stock?.currentPrice || 100,
         neckline: stock?.breakoutPrice || 100,
+        oneMonthReturn: stock?.oneMonthReturn ?? 0,
+        isBullTrend: true,
       };
     }
 
-    const firstDate = list[0]?.time || '';
-    const lastDate = list[list.length - 1]?.time || '';
-    const lastCandle = list[list.length - 1];
-    const prevCandle = list.length > 1 ? list[list.length - 2] : lastCandle;
+    const list = calculateIndicators(rawList);
+    const dyn = detectRealKLinePatternAndVerdict(
+      list,
+      stock.name,
+      stock.code,
+      stock.sector,
+      stock.patternType
+    );
 
-    const currentPrice = Number(lastCandle.close.toFixed(2));
-    const prevClose = prevCandle ? prevCandle.close : currentPrice;
-    const change = Number((currentPrice - prevClose).toFixed(2));
-    const changePercent = Number(((change / (prevClose || 1)) * 100).toFixed(2));
-
-    const threeMonthHigh = Math.max(...list.map(c => c.high));
-    const threeMonthLow = Math.min(...list.map(c => c.low));
-
-    // 20日均量計算
-    const last20 = list.slice(-20);
-    const volumeMa20 = Math.round(last20.reduce((acc, c) => acc + c.volume, 0) / Math.max(1, last20.length));
-    const volumeToday = lastCandle.volume;
-    const volumeSurgeRatio = volumeMa20 > 0 ? Number((volumeToday / volumeMa20).toFixed(2)) : (stock?.volumeSurgeRatio || 1.8);
-
-    // 均線 (5MA, 20MA, 60MA)
-    const ma5 = lastCandle.ma5 || Number((list.slice(-5).reduce((s, c) => s + c.close, 0) / Math.min(5, list.length)).toFixed(2));
-    const ma20 = lastCandle.ma20 || Number((list.slice(-20).reduce((s, c) => s + c.close, 0) / Math.min(20, list.length)).toFixed(2));
-    const ma60 = lastCandle.ma60 || Number((list.slice(-60).reduce((s, c) => s + c.close, 0) / Math.min(60, list.length)).toFixed(2));
-    const maConvergencePercent = Number((Math.abs((ma5 - ma20) / (ma20 || 1)) * 100).toFixed(1));
-
-    // 頸線阻力與箱底推估 (過去 15~45 天整理區的最高收盤/高點作為頸線阻力)
-    const consolidationPool = list.length > 15 ? list.slice(-45, -1) : list;
-    const consolidationHigh = Math.max(...consolidationPool.map(c => c.high));
-    const consolidationLow = Math.min(...consolidationPool.map(c => c.low));
-
-    // 突破頸線水準
-    const breakoutPrice = Number(consolidationHigh.toFixed(1));
-    const baseLow = Number(consolidationLow.toFixed(1));
-    const baseHeight = Math.max(currentPrice * 0.05, breakoutPrice - baseLow);
-
-    // 1. 建議起漲切入區間：頸線支撐回測位 ~ 突破追價容許上緣 (+1.5%)
-    const entryZoneLow = Number(Math.max(baseLow, breakoutPrice * 0.992).toFixed(1));
-    const entryZoneHigh = Number((Math.max(currentPrice, breakoutPrice) * 1.015).toFixed(1));
-
-    // 2. 關鍵防守停損價：跌破 20MA 月線或頸線假突破，嚴格控制在 4.5%~6.5% 停損風險
-    const stopLossCandidate = Math.min(ma20 * 0.985, currentPrice * 0.948);
-    const stopLossPrice = Number(stopLossCandidate.toFixed(1));
-    const riskDist = Math.max(0.1, currentPrice - stopLossPrice);
-    const riskPercent = Number(((riskDist / currentPrice) * 100).toFixed(1));
-
-    // 3. 第 1 波段目標價：箱型 1:1 等幅測量目標位 (Measured Move Projection)
-    const targetPrice1 = Number((breakoutPrice + baseHeight).toFixed(1));
-    const upsidePotentialPercent = Number((((targetPrice1 - currentPrice) / currentPrice) * 100).toFixed(1));
-    const rewardDist = Math.max(0.1, targetPrice1 - currentPrice);
-
-    // 4. 第 2 主升段目標價：費波那契 1.618x 主升擴展目標位 (Fibonacci Extension)
-    const targetPrice2 = Number((breakoutPrice + baseHeight * 1.618).toFixed(1));
-    const upsidePotentialPercent2 = Number((((targetPrice2 - currentPrice) / currentPrice) * 100).toFixed(1));
-
-    // 風險報酬比
-    const rrRatio = riskDist > 0 ? (rewardDist / riskDist).toFixed(1) : '3.8';
-
-    // 近 1 個月 (~22 交易日) 漲跌幅
-    const monthAgoCandle = list[Math.max(0, list.length - 22)] || list[0];
-    const oneMonthReturn = monthAgoCandle && monthAgoCandle.close > 0
-      ? Number((((currentPrice - monthAgoCandle.close) / monthAgoCandle.close) * 100).toFixed(1))
-      : (stock?.oneMonthReturn ?? 0);
-    const isBullTrend = currentPrice >= (ma20 * 0.98) && (ma20 >= (ma60 * 0.97));
-
-    // 操盤手核心定錨評語
-    const aiTraderVerdict = `AI 操盤手研判：${stock?.name || ''} (${stock?.code || ''}) 近 1 個月累積表現 ${oneMonthReturn >= 0 ? '+' : ''}${oneMonthReturn}%，處於${isBullTrend ? '牛市多頭均線結構' : '低檔強勢築底蓄勢'}。今日 yfinance 真實數據顯示，成交量爆量達 20 日均量的 ${volumeSurgeRatio}x，5MA ($${ma5}) 與 20MA ($${ma20}) 多頭發散！第 1 目標等幅測量指向 $${targetPrice1} (+${upsidePotentialPercent}%)，防守嚴守 $${stopLossPrice} (-${riskPercent}%)，風報比達 1:${rrRatio}！`;
+    const baseHeight = Math.max(dyn.currentPrice * 0.05, dyn.breakoutPrice - dyn.entryZoneLow);
 
     return {
       candlesCount: list.length,
-      currentPrice,
-      change,
-      changePercent,
-      threeMonthHigh,
-      threeMonthLow,
-      volumeToday,
-      volumeMa20,
-      volumeSurgeRatio,
-      breakoutPrice,
-      entryZoneLow,
-      entryZoneHigh,
-      stopLossPrice,
-      targetPrice1,
-      targetPrice2,
-      upsidePotentialPercent,
-      upsidePotentialPercent2,
-      riskRewardRatio: `1 : ${rrRatio}`,
-      riskPercent,
-      aiTraderVerdict,
-      consolidationDays: Math.min(list.length, Math.floor(18 + Math.random() * 10)),
-      maConvergencePercent,
-      firstDate,
-      lastDate,
-      baseLow,
+      currentPrice: dyn.currentPrice,
+      change: dyn.change,
+      changePercent: dyn.changePercent,
+      threeMonthHigh: dyn.threeMonthHigh,
+      threeMonthLow: dyn.threeMonthLow,
+      volumeToday: dyn.volumeToday,
+      volumeMa20: dyn.volumeMa20,
+      volumeSurgeRatio: dyn.volumeSurgeRatio,
+      breakoutPrice: dyn.breakoutPrice,
+      entryZoneLow: dyn.entryZoneLow,
+      entryZoneHigh: dyn.entryZoneHigh,
+      stopLossPrice: dyn.stopLossPrice,
+      targetPrice1: dyn.targetPrice1,
+      targetPrice2: dyn.targetPrice2,
+      upsidePotentialPercent: dyn.upsidePotentialPercent,
+      upsidePotentialPercent2: dyn.upsidePotentialPercent2,
+      riskRewardRatio: dyn.riskRewardRatio,
+      riskPercent: dyn.riskPercent,
+      patternType: dyn.patternType,
+      patternName: dyn.patternName,
+      patternBiasLabel: dyn.patternBiasLabel,
+      patternAnalysis: dyn.patternAnalysis,
+      aiTraderVerdict: dyn.aiTraderVerdict,
+      patternScore: dyn.patternScore,
+      breakoutStageLabel: dyn.breakoutStageLabel,
+      consolidationDays: dyn.consolidationDays,
+      maConvergencePercent: dyn.maConvergencePercent,
+      firstDate: dyn.firstDate,
+      lastDate: dyn.lastDate,
+      baseLow: dyn.entryZoneLow,
       baseHeight,
-      ma5,
-      ma20,
-      ma60,
-      neckline: breakoutPrice,
-      oneMonthReturn,
-      isBullTrend,
+      ma5: dyn.ma5,
+      ma20: dyn.ma20,
+      ma60: dyn.ma60,
+      neckline: dyn.breakoutPrice,
+      oneMonthReturn: dyn.oneMonthReturn,
+      isBullTrend: dyn.isBullTrend,
+      isPriceBreakingNeckline: dyn.isPriceBreakingNeckline,
+      isVolumeSurgingToday: dyn.isVolumeSurgingToday,
+      isRealVolumeBreakoutToday: dyn.isRealVolumeBreakoutToday,
     };
   }, [candles, stock]);
 
@@ -349,11 +315,11 @@ export const AiVolumeBreakoutModal: React.FC<AiVolumeBreakoutModalProps> = ({
                     AI 操盤手形態獵殺雷達 · yfinance 實況
                   </span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                    {stock.breakoutStageLabel}
+                    {analysis.breakoutStageLabel || stock.breakoutStageLabel}
                   </span>
                   {analysis.oneMonthReturn != null && (
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
-                      analysis.oneMonthReturn >= 0 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                      analysis.oneMonthReturn >= 0 ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                     }`}>
                       近1月 {analysis.oneMonthReturn >= 0 ? '+' : ''}{analysis.oneMonthReturn}%
                     </span>
@@ -365,7 +331,7 @@ export const AiVolumeBreakoutModal: React.FC<AiVolumeBreakoutModalProps> = ({
                   )}
                 </div>
                 <h4 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
-                  <span>{stock.patternName}</span>
+                  <span>{analysis.patternName || stock.patternName}</span>
                 </h4>
                 <p className="text-xs text-slate-200 leading-relaxed font-medium">
                   {analysis.aiTraderVerdict}
@@ -377,7 +343,7 @@ export const AiVolumeBreakoutModal: React.FC<AiVolumeBreakoutModalProps> = ({
                 <div className="text-left sm:text-center">
                   <div className="text-[10px] text-slate-400">形態匹配置信度</div>
                   <div className="text-xl sm:text-2xl font-black font-mono text-amber-300">
-                    {stock.patternScore}%
+                    {analysis.patternScore || stock.patternScore}%
                   </div>
                 </div>
                 <div className="text-right sm:text-center border-l sm:border-l-0 sm:border-t border-slate-800 pl-3 sm:pl-0 sm:pt-2 w-full">
@@ -499,9 +465,40 @@ export const AiVolumeBreakoutModal: React.FC<AiVolumeBreakoutModalProps> = ({
                     />
                   ))}
 
-                  {/* 突破頸線價水準線 */}
+                  {/* 箱型整理區間可視化陰影帶 (Consolidation Channel) */}
+                  {(() => {
+                    const topY = 170 - ((analysis.breakoutPrice - minPrice) / priceRange) * 160;
+                    const botY = 170 - ((analysis.baseLow - minPrice) / priceRange) * 160;
+                    const h = Math.max(4, Math.abs(botY - topY));
+                    const y = Math.min(topY, botY);
+                    return (
+                      <g>
+                        <rect
+                          x="0"
+                          y={Math.max(5, Math.min(170, y))}
+                          width="600"
+                          height={Math.min(165 - Math.max(5, Math.min(170, y)), h)}
+                          fill="rgba(59, 130, 246, 0.05)"
+                          stroke="rgba(244, 63, 94, 0.2)"
+                          strokeDasharray="3 3"
+                        />
+                        <text
+                          x="8"
+                          y={Math.max(16, y + 12)}
+                          fill="rgba(148, 163, 184, 0.65)"
+                          fontSize="8.5"
+                          fontFamily="monospace"
+                        >
+                          箱型整理區間 (${analysis.baseLow} ~ ${analysis.breakoutPrice})
+                        </text>
+                      </g>
+                    );
+                  })()}
+
+                  {/* 突破頸線/箱頂水準線 */}
                   {(() => {
                     const y = 170 - ((analysis.breakoutPrice - minPrice) / priceRange) * 160;
+                    const isAbove = analysis.currentPrice >= analysis.breakoutPrice * 0.992;
                     return (
                       <g>
                         <line
@@ -511,17 +508,47 @@ export const AiVolumeBreakoutModal: React.FC<AiVolumeBreakoutModalProps> = ({
                           y2={Math.max(5, Math.min(170, y))}
                           stroke="#f43f5e"
                           strokeDasharray="4 2"
-                          strokeWidth="1.2"
+                          strokeWidth="1.4"
                         />
                         <text
                           x="596"
                           y={Math.max(12, Math.min(168, y - 3))}
                           fill="#f43f5e"
                           fontSize="9"
+                          fontWeight="bold"
                           textAnchor="end"
                           fontFamily="monospace"
                         >
-                          頸線 ${analysis.breakoutPrice}
+                          頸線箱頂 ${analysis.breakoutPrice} {isAbove ? (analysis.isRealVolumeBreakoutToday ? '✓ 實質帶量突破' : '⚠️ 站上但量不足') : '⚠️ 箱頂反壓未突破'}
+                        </text>
+                      </g>
+                    );
+                  })()}
+
+                  {/* 20 日均量基準線 (下方量能圖) */}
+                  {(() => {
+                    const maY = 236 - (analysis.volumeMa20 / maxVolume) * 45;
+                    return (
+                      <g>
+                        <line
+                          x1="0"
+                          y1={Math.max(195, Math.min(235, maY))}
+                          x2="600"
+                          y2={Math.max(195, Math.min(235, maY))}
+                          stroke="#c084fc"
+                          strokeDasharray="3 2"
+                          strokeWidth="0.9"
+                          opacity="0.85"
+                        />
+                        <text
+                          x="596"
+                          y={Math.max(198, Math.min(233, maY - 2))}
+                          fill="#c084fc"
+                          fontSize="8"
+                          textAnchor="end"
+                          fontFamily="monospace"
+                        >
+                          20MA均量 {Math.round(analysis.volumeMa20 / 1000)}k (放量基準)
                         </text>
                       </g>
                     );
@@ -839,7 +866,7 @@ export const AiVolumeBreakoutModal: React.FC<AiVolumeBreakoutModalProps> = ({
                 <span>K 線幾何形態與籌碼換手特徵</span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed font-normal">
-                {stock.patternAnalysis}
+                {analysis.patternAnalysis || stock.patternAnalysis}
               </p>
               <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
                 <span>均線緊密糾結度: <strong className="text-slate-200">{analysis.maConvergencePercent}%</strong></span>

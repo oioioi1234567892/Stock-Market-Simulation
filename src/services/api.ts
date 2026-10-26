@@ -1,4 +1,4 @@
-import { StockQuote, CandleData, WatchlistItem } from '../types/stock.ts';
+import { StockQuote, CandleData, WatchlistItem, MarketMarginSummary } from '../types/stock.ts';
 import { TaiwanStockInfo, POPULAR_TAIWAN_STOCKS, resolveTaiwanSymbol, searchTaiwanStocks } from '../data/taiwanStocks.ts';
 import { generateFallbackCandles, generateFallbackQuote } from './clientStockFallback.ts';
 import { MarketFinancialProgress, calculateMarketFinancialProgress } from '../utils/marketFinancialCalendar.ts';
@@ -448,11 +448,17 @@ export async function fetchAiBatchAnalysis(): Promise<Record<string, AiStockFina
 }
 
 /**
- * 取得最新每日交易量前 5 大板塊，並透過 AI Agent 研判 3 個月 K 線形態精選 Top 20 放量起漲股
+ * 取得最新交易量/上漲量能前 5 大板塊，並透過 AI Agent 研判 3 個月 K 線形態精選 Top 20 放量起漲股
  */
-export async function fetchVolumeBreakoutScan(forceRefresh: boolean = false): Promise<VolumeBreakoutScanResult> {
+export async function fetchVolumeBreakoutScan(
+  rankingBy: 'upwardVolume' | 'volumeShare' = 'upwardVolume',
+  forceRefresh: boolean = false
+): Promise<VolumeBreakoutScanResult> {
   try {
-    const res = await fetch(`/api/ai/volume-breakout/scan${forceRefresh ? '?refresh=1' : ''}`);
+    const params = new URLSearchParams();
+    if (rankingBy) params.set('rankingBy', rankingBy);
+    if (forceRefresh) params.set('refresh', '1');
+    const res = await fetch(`/api/ai/volume-breakout/scan?${params.toString()}`);
     if (res.ok && isJsonResponse(res)) {
       const data = await res.json();
       if (data && Array.isArray(data.top20Stocks) && data.top20Stocks.length > 0) {
@@ -463,6 +469,31 @@ export async function fetchVolumeBreakoutScan(forceRefresh: boolean = false): Pr
     console.warn('fetchVolumeBreakoutScan network fetch error, falling back to local engine:', err);
   }
 
-  return runVolumeBreakoutScan();
+  return runVolumeBreakoutScan(undefined, rankingBy);
 }
+
+/**
+ * 撈取實際最新台灣加權指數 (^TWII) 與全市場大盤融資維持率數據及槓桿風險評估
+ */
+export async function fetchMarketMarginMaintenance(
+  range: string = '1y',
+  forceRefresh: boolean = false
+): Promise<MarketMarginSummary | null> {
+  try {
+    const params = new URLSearchParams();
+    if (range) params.set('range', range);
+    if (forceRefresh) params.set('refresh', '1');
+    const res = await fetch(`/api/stocks/twse/margin-maintenance?${params.toString()}`);
+    if (res.ok && isJsonResponse(res)) {
+      const data: MarketMarginSummary = await res.json();
+      if (data && Array.isArray(data.series) && data.series.length > 0) {
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn('fetchMarketMarginMaintenance network fetch error:', err);
+  }
+  return null;
+}
+
 

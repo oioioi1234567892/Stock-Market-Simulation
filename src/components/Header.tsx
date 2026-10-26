@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { POPULAR_TAIWAN_STOCKS, TaiwanStockInfo, resolveTaiwanSymbol, searchTaiwanStocks } from '../data/taiwanStocks.ts';
-import { Search, TrendingUp, ShieldCheck, Sparkles } from 'lucide-react';
+import { Search, TrendingUp, ShieldCheck, Sparkles, Scale } from 'lucide-react';
 
 interface HeaderProps {
   currentSymbol: string;
   onSelectStock: (symbol: string, name: string) => void;
-  activeView?: 'trading' | 'fundamentals';
-  onSwitchView?: (view: 'trading' | 'fundamentals') => void;
+  activeView?: 'trading' | 'fundamentals' | 'margin';
+  onSwitchView?: (view: 'trading' | 'fundamentals' | 'margin') => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -108,7 +108,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* View Switcher: Live Trading vs Tech Fundamentals */}
+        {/* View Switcher: Live Trading vs Tech Fundamentals vs Margin Maintenance */}
         {onSwitchView && (
           <div className="hidden md:flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs shadow-xs">
             <button
@@ -130,7 +130,18 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <Sparkles size={12} className={activeView === 'fundamentals' ? 'text-amber-300' : 'text-amber-400'} />
-              <span>AI 放量起漲精選 (Top 20)</span>
+              <span>五大熱門產業 & AI起漲20</span>
+            </button>
+            <button
+              onClick={() => onSwitchView('margin')}
+              className={`px-3 py-1.5 rounded-md font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeView === 'margin'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Scale size={12} className={activeView === 'margin' ? 'text-amber-300' : 'text-amber-400'} />
+              <span>大盤融資維持率</span>
             </button>
           </div>
         )}

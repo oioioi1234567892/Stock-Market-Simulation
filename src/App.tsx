@@ -9,9 +9,10 @@ import { InteractiveChart } from './components/InteractiveChart.tsx';
 import { StrategyBacktester } from './components/StrategyBacktester.tsx';
 import { WatchlistManager } from './components/WatchlistManager.tsx';
 import { TechFundamentalScanner } from './components/TechFundamentalScanner.tsx';
+import { MarketMarginMaintenance } from './components/MarketMarginMaintenance.tsx';
 import { PythonScriptModal } from './components/PythonScriptModal.tsx';
 import { MobileNav, ActiveMobileTab } from './components/MobileNav.tsx';
-import { RefreshCw, TrendingUp, Sparkles, LineChart } from 'lucide-react';
+import { RefreshCw, TrendingUp, Sparkles, LineChart, Scale } from 'lucide-react';
 
 export default function App() {
   // Active Stock State
@@ -49,8 +50,8 @@ export default function App() {
   });
 
   // Desktop Active View & Mobile Active Tab
-  const [desktopActiveView, setDesktopActiveView] = useState<'trading' | 'fundamentals'>('fundamentals');
-  const [activeMobileTab, setActiveMobileTab] = useState<ActiveMobileTab>('fundamentals');
+  const [desktopActiveView, setDesktopActiveView] = useState<'trading' | 'fundamentals' | 'margin'>('margin');
+  const [activeMobileTab, setActiveMobileTab] = useState<ActiveMobileTab>('margin');
 
   // Fetch Watchlist for active stock starring check
   const refreshWatchlist = useCallback(async () => {
@@ -252,6 +253,7 @@ export default function App() {
         onSwitchView={(v) => {
           setDesktopActiveView(v);
           if (v === 'fundamentals') setActiveMobileTab('fundamentals');
+          else if (v === 'margin') setActiveMobileTab('margin');
           else setActiveMobileTab('chart');
         }}
       />
@@ -259,27 +261,41 @@ export default function App() {
       {/* Main Content Layout */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-3 sm:py-4 flex flex-col gap-3.5 sm:gap-4">
         {/* Mobile View Tab Filter Switcher */}
-        <div className="sm:hidden flex items-center bg-slate-900 border border-slate-800 rounded-xl p-1 text-xs gap-1 shadow-sm">
+        <div className="sm:hidden flex items-center bg-slate-900 border border-slate-800 rounded-xl p-1 text-xs gap-1 shadow-sm overflow-x-auto">
+          <button
+            onClick={() => {
+              setActiveMobileTab('margin');
+              setDesktopActiveView('margin');
+            }}
+            className={`flex-1 py-1.5 px-2 rounded-lg font-bold text-center transition-all flex items-center justify-center gap-1 shrink-0 ${
+              activeMobileTab === 'margin'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Scale size={13} className={activeMobileTab === 'margin' ? 'text-amber-200' : 'text-amber-400'} />
+            <span>大盤維持率</span>
+          </button>
           <button
             onClick={() => {
               setActiveMobileTab('fundamentals');
               setDesktopActiveView('fundamentals');
             }}
-            className={`flex-1 py-1.5 rounded-lg font-bold text-center transition-all flex items-center justify-center gap-1 ${
+            className={`flex-1 py-1.5 px-2 rounded-lg font-bold text-center transition-all flex items-center justify-center gap-1 shrink-0 ${
               activeMobileTab === 'fundamentals'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
             <Sparkles size={13} className={activeMobileTab === 'fundamentals' ? 'text-amber-300' : 'text-amber-400'} />
-            <span>AI起漲20</span>
+            <span>熱門起漲</span>
           </button>
           <button
             onClick={() => {
               setActiveMobileTab('chart');
               setDesktopActiveView('trading');
             }}
-            className={`flex-1 py-1.5 rounded-lg font-semibold text-center transition-all ${
+            className={`flex-1 py-1.5 px-2 rounded-lg font-semibold text-center transition-all shrink-0 ${
               activeMobileTab === 'chart'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
@@ -292,7 +308,7 @@ export default function App() {
               setActiveMobileTab('backtest');
               setDesktopActiveView('trading');
             }}
-            className={`flex-1 py-1.5 rounded-lg font-semibold text-center transition-all ${
+            className={`flex-1 py-1.5 px-2 rounded-lg font-semibold text-center transition-all shrink-0 ${
               activeMobileTab === 'backtest'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
@@ -305,7 +321,7 @@ export default function App() {
               setActiveMobileTab('watchlist');
               setDesktopActiveView('trading');
             }}
-            className={`flex-1 py-1.5 rounded-lg font-semibold text-center transition-all ${
+            className={`flex-1 py-1.5 px-2 rounded-lg font-semibold text-center transition-all shrink-0 ${
               activeMobileTab === 'watchlist'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-400 hover:text-white'
@@ -315,18 +331,27 @@ export default function App() {
           </button>
         </div>
 
-        {/* 1. Tech Fundamental Scanner & Dynamic Valuation Page View */}
+        {/* 1. Market Margin Maintenance Ratio & Leverage Risk Page View */}
         <div className={`${
-          activeMobileTab === 'fundamentals' || (desktopActiveView === 'fundamentals' && activeMobileTab !== 'chart' && activeMobileTab !== 'backtest' && activeMobileTab !== 'watchlist')
+          activeMobileTab === 'margin' || (desktopActiveView === 'margin' && activeMobileTab !== 'fundamentals' && activeMobileTab !== 'chart' && activeMobileTab !== 'backtest' && activeMobileTab !== 'watchlist')
+            ? 'block'
+            : 'hidden'
+        }`}>
+          <MarketMarginMaintenance onSelectStock={handleSelectStock} />
+        </div>
+
+        {/* 2. Tech Fundamental Scanner & Dynamic Valuation Page View */}
+        <div className={`${
+          activeMobileTab === 'fundamentals' || (desktopActiveView === 'fundamentals' && activeMobileTab !== 'margin' && activeMobileTab !== 'chart' && activeMobileTab !== 'backtest' && activeMobileTab !== 'watchlist')
             ? 'block'
             : 'hidden'
         }`}>
           <TechFundamentalScanner onSelectStockForChart={handleSelectStock} />
         </div>
 
-        {/* 2. Live Trading Terminal & Backtest System View */}
+        {/* 3. Live Trading Terminal & Backtest System View */}
         <div className={`${
-          desktopActiveView === 'trading' || (activeMobileTab !== 'fundamentals' && desktopActiveView !== 'fundamentals')
+          desktopActiveView === 'trading' || (activeMobileTab !== 'fundamentals' && activeMobileTab !== 'margin' && desktopActiveView !== 'fundamentals' && desktopActiveView !== 'margin')
             ? 'flex flex-col gap-3.5 sm:gap-4'
             : 'hidden'
         }`}>
@@ -442,6 +467,7 @@ export default function App() {
         onChangeTab={(tab) => {
           setActiveMobileTab(tab);
           if (tab === 'fundamentals') setDesktopActiveView('fundamentals');
+          else if (tab === 'margin') setDesktopActiveView('margin');
           else setDesktopActiveView('trading');
         }}
       />
