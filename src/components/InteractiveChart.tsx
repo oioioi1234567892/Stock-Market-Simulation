@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { CandleData, TradeRecord } from '../types/stock.ts';
-import { Maximize2, Minimize2, Crosshair, AlertTriangle } from 'lucide-react';
+import { CandleData, TradeRecord, StockQuote } from '../types/stock.ts';
+import { Maximize2, Minimize2, Crosshair, AlertTriangle, Star, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
 
 interface InteractiveChartProps {
   candles: CandleData[];
@@ -11,6 +11,14 @@ interface InteractiveChartProps {
   selectedRange?: string;
   onRangeChange?: (range: string) => void;
   error?: string | null;
+  liveQuote?: StockQuote | null;
+  isInWatchlist?: boolean;
+  onToggleWatchlist?: () => void;
+  isAutoRefresh?: boolean;
+  autoRefreshCountdown?: number;
+  onToggleAutoRefresh?: () => void;
+  isRefreshingQuote?: boolean;
+  onRefreshQuote?: () => void;
 }
 
 export const InteractiveChart: React.FC<InteractiveChartProps> = ({
@@ -22,6 +30,14 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
   selectedRange = '2y',
   onRangeChange,
   error,
+  liveQuote,
+  isInWatchlist = false,
+  onToggleWatchlist,
+  isAutoRefresh = true,
+  autoRefreshCountdown = 15,
+  onToggleAutoRefresh,
+  isRefreshingQuote = false,
+  onRefreshQuote,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -847,13 +863,42 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
         isFullscreen ? 'fixed inset-0 z-50 rounded-none' : 'w-full'
       }`}
     >
-      {/* Top Header: Stock Details & Technical Toggles */}
-      <div className="px-3 py-2.5 bg-slate-950/90 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
+      {/* Top Header: Stock Details, Live Price & Technical Toggles */}
+      <div className="px-3 py-2 bg-slate-950/90 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-bold text-slate-100 text-sm sm:text-base">{stockName}</span>
           <span className="text-xs text-slate-400 font-mono bg-slate-800/80 px-2 py-0.5 rounded">
             {symbol}
           </span>
+          {onToggleWatchlist && (
+            <button
+              onClick={onToggleWatchlist}
+              className="p-1 rounded hover:bg-slate-800 transition-colors cursor-pointer text-slate-400 hover:text-amber-400"
+              title={isInWatchlist ? '已在自選股 (點擊移除)' : '加入自選監控'}
+            >
+              <Star size={13} className={isInWatchlist ? 'fill-amber-400 text-amber-400' : ''} />
+            </button>
+          )}
+          {liveQuote && (
+            <div className="flex items-baseline gap-1.5 font-mono">
+              <span className={`text-sm sm:text-base font-extrabold ${liveQuote.change >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                ${liveQuote.price.toFixed(2)}
+              </span>
+              <span className={`text-xs font-semibold ${liveQuote.change >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                {liveQuote.change >= 0 ? '+' : ''}{liveQuote.change.toFixed(2)} ({liveQuote.change >= 0 ? '+' : ''}{liveQuote.changePercent.toFixed(2)}%)
+              </span>
+            </div>
+          )}
+          {onToggleAutoRefresh && (
+            <button
+              onClick={onToggleAutoRefresh}
+              className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 flex items-center gap-1 cursor-pointer"
+              title={isAutoRefresh ? '每15秒自動連線yfinance更新盤中價，點擊暫停' : '點擊啟用自動更新'}
+            >
+              <RefreshCw size={10} className={isRefreshingQuote ? 'animate-spin text-emerald-400' : ''} />
+              <span>{isAutoRefresh ? `${autoRefreshCountdown}s` : '暫停'}</span>
+            </button>
+          )}
         </div>
 
         {/* Right Tools: Trade Markers Toggle, Bollinger & MA Toggles, Fullscreen */}

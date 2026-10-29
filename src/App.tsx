@@ -4,7 +4,6 @@ import { fetchStockQuote, fetchStockHistory, getWatchlist, addWatchlist, deleteW
 import { evaluateStrategySignal, DEFAULT_STRATEGY, DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS } from './utils/backtestEngine.ts';
 import { loadStrategyFromCookie } from './utils/cookieStorage.ts';
 import { Header } from './components/Header.tsx';
-import { StockSummary } from './components/StockSummary.tsx';
 import { InteractiveChart } from './components/InteractiveChart.tsx';
 import { StrategyBacktester } from './components/StrategyBacktester.tsx';
 import { WatchlistManager } from './components/WatchlistManager.tsx';
@@ -358,68 +357,6 @@ export default function App() {
             ? 'flex flex-col gap-3.5 sm:gap-4'
             : 'hidden'
         }`}>
-          {/* Real-time Quote Summary Banner - 手機端在自選池頁面不顯示此卡片，純粹呈現自選清單 */}
-          <div className={`flex flex-col gap-2 ${activeMobileTab === 'watchlist' ? 'hidden sm:flex' : 'flex'}`}>
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <span className="text-xs text-slate-300 flex items-center gap-1.5 font-medium">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-                <TrendingUp size={14} className="text-red-400" />
-                <span>即時行情監控面板 · 整合 Yahoo Finance (yfinance) 盤中串接</span>
-              </span>
-              <div className="flex items-center gap-2">
-                {lastQuoteTime && (
-                  <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
-                    連線時間：{lastQuoteTime.toLocaleTimeString('zh-TW', { hour12: false })}
-                  </span>
-                )}
-                <button
-                  onClick={handleToggleAutoRefresh}
-                  className={`text-xs flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer shadow-xs font-semibold active:scale-95 border ${
-                    isAutoRefresh
-                      ? 'bg-emerald-950/80 border-emerald-600/70 hover:bg-emerald-900/80 text-emerald-300'
-                      : 'bg-slate-900 border-slate-700 hover:bg-slate-800 text-slate-300'
-                  }`}
-                  title={
-                    isAutoRefresh
-                      ? '自動更新已開啟（每 15 秒自動從 yfinance 連線抓取最新盤中價），點擊可暫停'
-                      : '點擊啟動自動更新（每 15 秒自動從 yfinance 連線抓取最新盤中價）'
-                  }
-                >
-                  {isAutoRefresh ? (
-                    <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
-                    </span>
-                  ) : (
-                    <span className="h-2 w-2 rounded-full bg-slate-500"></span>
-                  )}
-                  <RefreshCw size={12} className={isRealtimeRefreshing ? 'animate-spin text-emerald-400' : ''} />
-                  <span>
-                    {isRealtimeRefreshing
-                      ? '自動更新中...'
-                      : isAutoRefresh
-                      ? `自動更新中 (${autoRefreshCountdown}s)`
-                      : '自動更新：已暫停'}
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            <StockSummary
-              quote={quote}
-              isLoading={isQuoteLoading}
-              isInWatchlist={isInWatchlist}
-              onToggleWatchlist={handleToggleWatchlist}
-              strategySignal={currentStrategySignal}
-              onRefreshQuote={handleRefreshRealtime}
-              isRefreshingQuote={isRealtimeRefreshing}
-              lastQuoteTime={lastQuoteTime}
-            />
-          </div>
-
           {/* Desktop & Mobile Chart Section */}
           <div className={`${activeMobileTab === 'chart' ? 'block' : 'hidden sm:block'}`}>
             <InteractiveChart
@@ -431,6 +368,14 @@ export default function App() {
               selectedRange={currentRange}
               onRangeChange={setCurrentRange}
               error={errorMsg}
+              liveQuote={quote}
+              isInWatchlist={isInWatchlist}
+              onToggleWatchlist={handleToggleWatchlist}
+              isAutoRefresh={isAutoRefresh}
+              autoRefreshCountdown={autoRefreshCountdown}
+              onToggleAutoRefresh={handleToggleAutoRefresh}
+              isRefreshingQuote={isRealtimeRefreshing}
+              onRefreshQuote={handleRefreshRealtime}
             />
           </div>
 
