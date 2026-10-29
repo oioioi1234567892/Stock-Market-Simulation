@@ -16,6 +16,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
+  Table,
+  LayoutGrid,
 } from 'lucide-react';
 
 interface TopSectorStocksKLineViewerProps {
@@ -29,6 +31,88 @@ interface TopSectorStocksKLineViewerProps {
   onOpenStockDetail?: (stock: any) => void;
 }
 
+// 簡易 K 線微型圖表元件 (Mini Candlestick Chart - 密集高密度精簡版)
+const MiniKLineChart: React.FC<{ candles: CandleData[]; width?: number; height?: number }> = ({
+  candles,
+  width = 105,
+  height = 28,
+}) => {
+  if (!candles || candles.length === 0) {
+    return <span className="text-[9px] text-slate-500 font-mono">載入中...</span>;
+  }
+  const slice = candles.slice(-30);
+  const minPrice = Math.min(...slice.map(c => c.low)) || 1;
+  const maxPrice = Math.max(...slice.map(c => c.high)) || 1;
+  const range = Math.max(0.1, maxPrice - minPrice);
+  const pad = 2;
+
+  return (
+    <div className="flex flex-col items-center">
+      <svg width={width} height={height} className="select-none overflow-hidden rounded bg-slate-950 border border-slate-800/80 p-0.5">
+        {/* 中軸輔助線 */}
+        <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="#1e293b" strokeDasharray="2,2" strokeWidth="0.6" />
+
+        {/* 蠟燭圖 */}
+        {slice.map((c, i) => {
+          const w = Math.max(1.4, (width / slice.length) * 0.72);
+          const x = (i / (slice.length - 1 || 1)) * (width - w - pad * 2) + pad;
+          const isUp = c.close >= c.open;
+          const yHigh = height - pad - ((c.high - minPrice) / range) * (height - pad * 2);
+          const yLow = height - pad - ((c.low - minPrice) / range) * (height - pad * 2);
+          const yOpen = height - pad - ((c.open - minPrice) / range) * (height - pad * 2);
+          const yClose = height - pad - ((c.close - minPrice) / range) * (height - pad * 2);
+          const yTop = Math.min(yOpen, yClose);
+          const bodyH = Math.max(1, Math.abs(yClose - yOpen));
+
+          return (
+            <g key={i}>
+              <line x1={x + w / 2} y1={yHigh} x2={x + w / 2} y2={yLow} stroke={isUp ? '#f43f5e' : '#10b981'} strokeWidth="0.7" />
+              <rect x={x} y={yTop} width={w} height={bodyH} fill={isUp ? '#f43f5e' : '#10b981'} rx="0.2" />
+            </g>
+          );
+        })}
+
+        {/* 5MA (黃線) */}
+        <polyline
+          fill="none"
+          stroke="#fbbf24"
+          strokeWidth="0.8"
+          points={slice
+            .map((c, i) => {
+              if (!c.ma5) return '';
+              const x = (i / (slice.length - 1 || 1)) * (width - pad * 2) + pad;
+              const y = height - pad - ((c.ma5 - minPrice) / range) * (height - pad * 2);
+              return `${x},${y}`;
+            })
+            .filter(Boolean)
+            .join(' ')}
+        />
+
+        {/* 20MA (藍線) */}
+        <polyline
+          fill="none"
+          stroke="#38bdf8"
+          strokeWidth="0.8"
+          points={slice
+            .map((c, i) => {
+              if (!c.ma20) return '';
+              const x = (i / (slice.length - 1 || 1)) * (width - pad * 2) + pad;
+              const y = height - pad - ((c.ma20 - minPrice) / range) * (height - pad * 2);
+              return `${x},${y}`;
+            })
+            .filter(Boolean)
+            .join(' ')}
+        />
+      </svg>
+      <div className="flex justify-between w-full text-[7px] font-mono text-slate-500 leading-none mt-0.5 px-0.5">
+        <span>L:{minPrice.toFixed(0)}</span>
+        <span className="text-slate-400">30K·MA5/20</span>
+        <span>H:{maxPrice.toFixed(0)}</span>
+      </div>
+    </div>
+  );
+};
+
 export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProps> = ({
   top5Sectors,
   allSectors,
@@ -39,20 +123,22 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
   candlesMap,
   onOpenStockDetail,
 }) => {
-  const [filterStrategyOnly, setFilterStrategyOnly] = useState<boolean>(false);
+  // 檢視模式：預設為表格呈現 (table)
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  const [selectedSignalFilter, setSelectedSignalFilter] = useState<'ALL' | 'BUY' | 'HOLD' | 'WAIT' | 'SELL'>('ALL');
   const [searchKeyword, setSearchKeyword] = useState<string>('');
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(24);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [localCandlesMap, setLocalCandlesMap] = useState<Map<string, CandleData[]>>(() => new Map());
   const [isFetchingRealCandles, setIsFetchingRealCandles] = useState<boolean>(false);
   const [fetchProgress, setFetchProgress] = useState<{ loaded: number; total: number }>({ loaded: 0, total: 0 });
 
-  // 重置頁碼當板塊或搜尋條件變更
+  // 重置頁碼當條件變更
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedSector, filterStrategyOnly, searchKeyword]);
+  }, [selectedSector, selectedSignalFilter, searchKeyword]);
 
-  // 取得目標顯示的產業清單
+  // 目標產業清單
   const targetSectorNames = useMemo(() => {
     if (selectedSector && selectedSector !== 'ALL') {
       return [selectedSector];
@@ -60,7 +146,7 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
     return top5Sectors.map(s => s.sector);
   }, [selectedSector, top5Sectors]);
 
-  // 1. 蒐集這 5 個產業中【真實所有成分股】(TWSE + TPEx 上市櫃全成分股)
+  // 1. 蒐集這 5 個產業中【全市場真實所有成分股】(TWSE + TPEx 上市櫃全成分股)
   const allSectorStocksRaw = useMemo(() => {
     const list: {
       sectorName: string;
@@ -78,7 +164,6 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
 
     const seen = new Set<string>();
 
-    // 優先從 top5Sectors 的 allConstituentStocks 載入該板塊真實所有成分股
     top5Sectors.forEach(topSec => {
       const isMatched = targetSectorNames.some(t => isSectorMatch(t, topSec.sector));
       if (isMatched && topSec.allConstituentStocks && topSec.allConstituentStocks.length > 0) {
@@ -103,7 +188,6 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
       }
     });
 
-    // 補充 ALL_TAIWAN_SECTORS 中的標的
     allSectors.forEach(sec => {
       const matchedTarget = targetSectorNames.find(t => isSectorMatch(t, sec.sectorName));
       if (matchedTarget) {
@@ -125,13 +209,11 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
       }
     });
 
-    // 依成交額或市值排序
     list.sort((a, b) => (b.turnoverYi || 0) - (a.turnoverYi || 0) || (b.marketCap || 0) - (a.marketCap || 0));
-
     return list;
   }, [top5Sectors, allSectors, targetSectorNames]);
 
-  // 2. 自動向後端 /api/stocks/batch-candles 撈取真實 3 個月日 K 線
+  // 2. 自動向後端 /api/stocks/batch-candles 撈取真實日 K 線
   const isFetchingRef = useRef(false);
   const fetchCandlesForCurrentStocks = async (force: boolean = false) => {
     if (isFetchingRef.current && !force) return;
@@ -157,7 +239,6 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
     setFetchProgress({ loaded: allSectorStocksRaw.length - neededSymbols.length, total: allSectorStocksRaw.length });
 
     try {
-      // 批次分組請求，每組 16 檔標的並行處理
       const chunkSize = 16;
       for (let i = 0; i < neededSymbols.length; i += chunkSize) {
         const chunk = neededSymbols.slice(i, i + chunkSize);
@@ -200,7 +281,7 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
     fetchCandlesForCurrentStocks();
   }, [allSectorStocksRaw]);
 
-  // 3. 結合真實 K 線、均線指標與策略信號計算每檔股票展示資料
+  // 3. 結合真實 K 線、指標與自訂策略評估信號
   const sectorStocksData = useMemo(() => {
     return allSectorStocksRaw.map(stk => {
       const existing =
@@ -222,13 +303,9 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
       const change = Number((currentPrice - prevClose).toFixed(2));
       const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
 
-      const last20 = candlesWithInd.slice(-20);
       const volumeToday = lastC ? lastC.volume : ((stk.volumeShares || 10) * 1000);
-      const volumeMa20 = Math.round(
-        last20.reduce((acc, c) => acc + c.volume, 0) / Math.max(1, last20.length)
-      );
 
-      // 執行策略研判
+      // 執行策略信號評估
       const strategySignal = evaluateStrategySignal(
         candlesWithInd,
         userStrategy || DEFAULT_STRATEGY,
@@ -242,7 +319,7 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
         name: stk.name,
         symbol: stk.symbol,
         market: stk.market || 'TWSE',
-        subCategory: stk.market ? `${stk.market} 上市櫃成分股` : '全產業成分股',
+        subCategory: stk.market ? `${stk.market} 上市櫃` : '成分股',
         basePrice: stk.close,
         turnoverYi: stk.turnoverYi,
         candles: candlesWithInd.slice(-66),
@@ -250,21 +327,18 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
         change,
         changePercent,
         volumeToday,
-        volumeMa20,
         isRealCandles: isReal,
         strategySignal,
       };
     });
   }, [allSectorStocksRaw, localCandlesMap, candlesMap, userStrategy]);
 
-  // 4. 關鍵字過濾與自訂策略篩選
+  // 4. 關鍵字與策略信號篩選 (買進、持有、觀望、賣出)
   const filteredStocks = useMemo(() => {
     let list = sectorStocksData;
 
-    if (filterStrategyOnly) {
-      list = list.filter(
-        s => s.strategySignal.status === 'BUY' || s.strategySignal.status === 'HOLD'
-      );
+    if (selectedSignalFilter !== 'ALL') {
+      list = list.filter(s => s.strategySignal.status === selectedSignalFilter);
     }
 
     const kw = searchKeyword.trim().toLowerCase();
@@ -279,7 +353,7 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
     }
 
     return list;
-  }, [sectorStocksData, filterStrategyOnly, searchKeyword]);
+  }, [sectorStocksData, selectedSignalFilter, searchKeyword]);
 
   // 5. 分頁切片
   const totalItems = filteredStocks.length;
@@ -290,84 +364,102 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
     return filteredStocks.slice(start, start + pageSize);
   }, [filteredStocks, currentPage, pageSize]);
 
-  // 統計總覽
-  const realCandlesCount = useMemo(() => {
-    return sectorStocksData.filter(s => s.isRealCandles).length;
-  }, [sectorStocksData]);
-
-  const buyHoldCount = useMemo(() => {
-    return sectorStocksData.filter(
-      s => s.strategySignal.status === 'BUY' || s.strategySignal.status === 'HOLD'
-    ).length;
+  // 信號統計
+  const signalCounts = useMemo(() => {
+    let buy = 0;
+    let hold = 0;
+    let wait = 0;
+    let sell = 0;
+    sectorStocksData.forEach(s => {
+      const st = s.strategySignal.status;
+      if (st === 'BUY') buy++;
+      else if (st === 'HOLD') hold++;
+      else if (st === 'SELL') sell++;
+      else wait++;
+    });
+    return { buy, hold, wait, sell, total: sectorStocksData.length };
   }, [sectorStocksData]);
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 shadow-xl">
-      {/* 頂部標題與篩選控制 */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+    <div className="bg-slate-900/95 border border-slate-800 rounded-xl p-3 sm:p-4 flex flex-col gap-2.5 shadow-xl">
+      {/* 頂部標題與控制列 */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
         <div>
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40 flex items-center gap-1">
-              <LineChart size={12} className="text-blue-400" />
-              五大產業真實全成分股 · 3個月日K線庫
+          <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40 flex items-center gap-1">
+              <Table size={11} className="text-blue-400" />
+              五大熱門產業全成分股 · 策略即時選股表格
             </span>
             <span className="text-[11px] text-slate-400 font-mono">
-              包含全市場真實 <strong>{allSectorStocksRaw.length}</strong> 檔成分股票 · 已載入真實日K {realCandlesCount} 檔
+              涵蓋 <strong>{allSectorStocksRaw.length}</strong> 檔 · 買進 <span className="text-rose-400 font-bold">{signalCounts.buy}</span> · 持有 <span className="text-emerald-400 font-bold">{signalCounts.hold}</span> · 觀望 <span className="text-slate-400">{signalCounts.wait}</span> · 賣出 <span className="text-amber-400">{signalCounts.sell}</span>
             </span>
             {isFetchingRealCandles && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-950 text-blue-300 border border-blue-600/50 flex items-center gap-1 font-mono animate-pulse">
-                <RefreshCw size={10} className="animate-spin" />
-                正在撈取全成分股日K ({fetchProgress.loaded}/{fetchProgress.total})
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-950 text-blue-300 border border-blue-600/50 flex items-center gap-1 font-mono animate-pulse">
+                <RefreshCw size={9} className="animate-spin" />
+                更新日K ({fetchProgress.loaded}/{fetchProgress.total})
               </span>
             )}
           </div>
-          <h3 className="text-sm sm:text-base font-black text-white flex items-center gap-2">
+          <h3 className="text-xs sm:text-sm font-black text-white flex items-center gap-1.5">
             <span>
               {selectedSector && selectedSector !== 'ALL'
-                ? `【${selectedSector}】產業全成分股近 3 個月真實 K 線圖 (${allSectorStocksRaw.length}檔)`
-                : `前五大熱門產業・全成分股近 3 個月真實 K 線圖總覽 (${allSectorStocksRaw.length}檔)`}
+                ? `【${selectedSector}】全成分股看盤表 (${allSectorStocksRaw.length}檔)`
+                : `前五大熱門產業・全成分股看盤表 (${allSectorStocksRaw.length}檔)`}
             </span>
           </h3>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
-          {/* 策略「買進/持有」過濾按鈕 */}
-          <button
-            onClick={() => setFilterStrategyOnly(prev => !prev)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
-              filterStrategyOnly
-                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/40 ring-1 ring-emerald-400'
-                : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
-            }`}
-          >
-            <Sparkles size={13} className={filterStrategyOnly ? 'text-amber-300' : 'text-slate-400'} />
-            <span>僅顯示策略買進/持有 ({buyHoldCount})</span>
-          </button>
+        <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto justify-between sm:justify-end">
+          {/* 視圖切換 (表格 / 卡片) */}
+          <div className="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+            <button
+              onClick={() => setViewMode('table')}
+              className={`px-2 py-0.5 rounded text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                viewMode === 'table'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Table size={11} />
+              <span>表格</span>
+            </button>
+            <button
+              onClick={() => setViewMode('cards')}
+              className={`px-2 py-0.5 rounded text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                viewMode === 'cards'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <LayoutGrid size={11} />
+              <span>卡片</span>
+            </button>
+          </div>
 
-          {/* 強制重新同步真實 K 線按鈕 */}
+          {/* 刷新 K 線 */}
           <button
             onClick={() => fetchCandlesForCurrentStocks(true)}
             disabled={isFetchingRealCandles}
-            className="px-2.5 py-1.5 rounded-xl text-xs font-medium bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50 shrink-0"
-            title="重新自 Yahoo Finance 批次更新全成分股真實日K"
+            className="px-2 py-1 rounded-lg text-xs font-medium bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-800 flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+            title="重新自 Yahoo Finance 更新真實日K"
           >
-            <RefreshCw size={12} className={isFetchingRealCandles ? 'animate-spin text-blue-400' : ''} />
+            <RefreshCw size={11} className={isFetchingRealCandles ? 'animate-spin text-blue-400' : ''} />
             <span>刷新K線</span>
           </button>
         </div>
       </div>
 
-      {/* 5 大動能產業快速切換頁籤 */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+      {/* 5 大熱門產業頁籤快速切換 */}
+      <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none text-xs">
         <button
           onClick={() => onSelectSector('ALL')}
-          className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer ${
+          className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
             selectedSector === 'ALL'
               ? 'bg-blue-600 text-white shadow-xs'
               : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
           }`}
         >
-          全部 5 大動能產業 ({top5Sectors.reduce((acc, s) => acc + (s.allConstituentStocks?.length || s.stocksCount || 0), 0)}檔)
+          全部 5 大產業 ({top5Sectors.reduce((acc, s) => acc + (s.allConstituentStocks?.length || s.stocksCount || 0), 0)}檔)
         </button>
         {top5Sectors.map(s => {
           const isSelected = selectedSector === s.sector;
@@ -376,17 +468,17 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
             <button
               key={s.sector}
               onClick={() => onSelectSector(s.sector)}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer flex items-center gap-1 ${
                 isSelected
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
               }`}
             >
               <span>{s.sector}</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-900/80 text-slate-300 font-mono">
+              <span className="text-[9px] px-1 py-0.2 rounded bg-slate-900/80 text-slate-300 font-mono">
                 {count}檔
               </span>
-              <span className={`text-[10px] font-mono ${s.fiveDayCumulativeChange >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+              <span className={`text-[10px] font-mono font-bold ${s.fiveDayCumulativeChange >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                 {s.fiveDayCumulativeChange >= 0 ? '+' : ''}{s.fiveDayCumulativeChange}%
               </span>
             </button>
@@ -394,244 +486,298 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
         })}
       </div>
 
-      {/* 搜尋欄位與每頁數量切換 */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-            placeholder="🔍 快速搜尋全成分股代號或名稱 (如 2330, 台積電, 欣興, 2454, 鴻海...)"
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-900 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-hidden focus:border-blue-500 transition-all"
-          />
+      {/* 策略訊號快選按鈕列 (買進、持有、觀望、賣出) 與搜尋 */}
+      <div className="flex items-center justify-between gap-1.5 flex-wrap bg-slate-950/70 p-1.5 sm:p-2 rounded-lg border border-slate-800/80 text-xs">
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="text-[10px] text-slate-400 font-medium mr-0.5 flex items-center gap-1">
+            <Filter size={11} className="text-blue-400" />
+            <span>訊號:</span>
+          </span>
+
+          <button
+            onClick={() => setSelectedSignalFilter('ALL')}
+            className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+              selectedSignalFilter === 'ALL'
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            全部 ({signalCounts.total})
+          </button>
+
+          <button
+            onClick={() => setSelectedSignalFilter(prev => prev === 'BUY' ? 'ALL' : 'BUY')}
+            className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+              selectedSignalFilter === 'BUY'
+                ? 'bg-rose-500 text-white shadow-xs'
+                : 'bg-slate-900 text-rose-400 hover:text-white border border-rose-500/30'
+            }`}
+          >
+            <span>🔥 買進</span>
+            <span className="text-[9px] px-1 py-0 rounded-full bg-slate-950 text-rose-300 font-mono font-bold">
+              {signalCounts.buy}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setSelectedSignalFilter(prev => prev === 'HOLD' ? 'ALL' : 'HOLD')}
+            className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+              selectedSignalFilter === 'HOLD'
+                ? 'bg-emerald-500 text-slate-950 font-bold shadow-xs'
+                : 'bg-slate-900 text-emerald-400 hover:text-white border border-emerald-500/30'
+            }`}
+          >
+            <span>💎 持有</span>
+            <span className="text-[9px] px-1 py-0 rounded-full bg-slate-950 text-emerald-300 font-mono font-bold">
+              {signalCounts.hold}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setSelectedSignalFilter(prev => prev === 'WAIT' ? 'ALL' : 'WAIT')}
+            className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+              selectedSignalFilter === 'WAIT'
+                ? 'bg-slate-700 text-white shadow-xs'
+                : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <span>⏳ 觀望</span>
+            <span className="text-[9px] px-1 py-0 rounded-full bg-slate-950 text-slate-300 font-mono font-bold">
+              {signalCounts.wait}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setSelectedSignalFilter(prev => prev === 'SELL' ? 'ALL' : 'SELL')}
+            className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+              selectedSignalFilter === 'SELL'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                : 'bg-slate-900 text-amber-400 hover:text-white border border-amber-500/30'
+            }`}
+          >
+            <span>⛔ 賣出</span>
+            <span className="text-[9px] px-1 py-0 rounded-full bg-slate-950 text-amber-300 font-mono font-bold">
+              {signalCounts.sell}
+            </span>
+          </button>
         </div>
 
-        <div className="flex items-center justify-between sm:justify-end gap-2 text-xs text-slate-400 font-mono">
-          <span>共 {totalItems} 檔</span>
-          <div className="flex items-center gap-1">
+        {/* 搜尋與每頁數量切換 */}
+        <div className="flex items-center gap-1.5 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-44">
+            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              placeholder="搜尋代號或名稱..."
+              className="w-full pl-6.5 pr-2 py-0.5 text-[11px] bg-slate-900 border border-slate-800 rounded-md text-slate-200 placeholder-slate-500 focus:outline-hidden focus:border-blue-500 transition-all"
+            />
+          </div>
+
+          <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono shrink-0">
             <span>每頁:</span>
-            {[24, 48, 96, -1].map((sz) => (
+            {[25, 50, 100, -1].map((sz) => (
               <button
                 key={sz}
                 onClick={() => setPageSize(sz)}
-                className={`px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer transition-all ${
+                className={`px-1.5 py-0.2 rounded font-bold cursor-pointer transition-all ${
                   pageSize === sz
                     ? 'bg-blue-600 text-white'
                     : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
                 }`}
               >
-                {sz === -1 ? '全部' : sz}
+                {sz === -1 ? '全' : sz}
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      {/* 成分股卡片清單與 K 線圖總覽 */}
+      {/* ========================================================================= */}
+      {/* 核心表格呈現 (Table View) - 高密度、緊湊排列、極小化空白                    */}
+      {/* 欄位: 股票名稱(代號)｜產業｜股價｜今日成交量｜策略訊號｜簡易K線｜看盤按鈕    */}
+      {/* ========================================================================= */}
       {paginatedStocks.length === 0 ? (
-        <div className="text-center py-12 bg-slate-950/50 rounded-2xl border border-slate-800/80">
-          <Filter size={32} className="mx-auto text-slate-600 mb-2" />
-          <p className="text-slate-400 text-sm font-medium">沒有符合篩選條件的成分股票</p>
-          <p className="text-slate-500 text-xs mt-1">請嘗試清除搜尋關鍵字或取消「僅顯示買進/持有」過濾</p>
+        <div className="text-center py-8 bg-slate-950/50 rounded-xl border border-slate-800/80">
+          <Filter size={24} className="mx-auto text-slate-600 mb-1.5" />
+          <p className="text-slate-400 text-xs font-medium">沒有符合條件的成分股票</p>
+          <p className="text-slate-500 text-[11px] mt-0.5">請調整策略訊號篩選或清除關鍵字搜尋</p>
+        </div>
+      ) : viewMode === 'table' ? (
+        <div className="overflow-x-auto rounded-lg border border-slate-800 bg-slate-950/90 shadow-inner">
+          <table className="w-full text-left text-xs text-slate-300 border-collapse">
+            <thead className="bg-slate-950 text-[10px] font-bold text-slate-400 font-mono tracking-normal sticky top-0 z-20 border-b border-slate-800">
+              <tr>
+                <th className="py-1.5 px-2.5 whitespace-nowrap sticky left-0 z-30 bg-slate-950 border-r border-slate-800/60 shadow-xs">
+                  股票名稱 (代號)
+                </th>
+                <th className="py-1.5 px-2 whitespace-nowrap">產業</th>
+                <th className="py-1.5 px-2 text-right whitespace-nowrap">股價</th>
+                <th className="py-1.5 px-2 text-right whitespace-nowrap">今日成交量</th>
+                <th className="py-1.5 px-2 text-center whitespace-nowrap">策略訊號 (買進/持有/觀望/賣出)</th>
+                <th className="py-1.5 px-2 text-center whitespace-nowrap">簡易K線 (30日·MA5/20)</th>
+                <th className="py-1.5 px-2 text-center whitespace-nowrap">看盤按鈕</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/50 font-sans">
+              {paginatedStocks.map((stk) => {
+                const isUp = stk.change >= 0;
+                const status = stk.strategySignal.status;
+
+                return (
+                  <tr
+                    key={stk.symbol}
+                    onClick={() => onSelectStockForChart(stk.symbol, stk.name)}
+                    className="hover:bg-blue-950/25 transition-colors group cursor-pointer even:bg-slate-900/20"
+                  >
+                    {/* 1. 股票名稱(代號) - 密集單行排列 + 凍結首欄 */}
+                    <td className="py-1.5 px-2.5 whitespace-nowrap sticky left-0 z-10 bg-slate-950 group-hover:bg-slate-900 border-r border-slate-800/60 transition-colors">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-white text-xs group-hover:text-blue-300 transition-colors">
+                          {stk.name}
+                        </span>
+                        <span className="text-[11px] font-mono font-semibold text-blue-400">
+                          {stk.code}
+                        </span>
+                        <span className="text-[9px] px-1 py-0 rounded font-mono bg-slate-900 text-slate-400 border border-slate-800/80">
+                          {stk.market}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* 2. 產業 */}
+                    <td className="py-1.5 px-2 whitespace-nowrap">
+                      <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-medium bg-blue-950/60 text-blue-300 border border-blue-800/40">
+                        {stk.sectorName}
+                      </span>
+                    </td>
+
+                    {/* 3. 股價與漲跌 (緊湊並列) */}
+                    <td className="py-1.5 px-2 text-right whitespace-nowrap font-mono">
+                      <div className="flex items-baseline justify-end gap-1.5">
+                        <span className="text-xs font-bold text-white">
+                          ${stk.currentPrice}
+                        </span>
+                        <span className={`text-[10px] font-semibold flex items-center gap-0.5 ${isUp ? 'text-rose-400' : 'text-emerald-400'}`}>
+                          {isUp ? <TrendingUp size={9} /> : <TrendingDown size={9} />}
+                          <span>{isUp ? '+' : ''}{stk.changePercent}%</span>
+                        </span>
+                      </div>
+                      <div className={`text-[9px] leading-none ${isUp ? 'text-rose-400/80' : 'text-emerald-400/80'}`}>
+                        {isUp ? '+' : ''}{stk.change}
+                      </div>
+                    </td>
+
+                    {/* 4. 今日成交量 */}
+                    <td className="py-1.5 px-2 text-right whitespace-nowrap font-mono">
+                      <span className="text-xs font-bold text-slate-200">
+                        {Math.round(stk.volumeToday / 1000).toLocaleString()}
+                      </span>
+                      <span className="text-[9px] text-slate-400 ml-0.5">張</span>
+                    </td>
+
+                    {/* 5. 策略訊號(買進、持有、觀望、賣出) */}
+                    <td className="py-1 px-2 text-center whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border inline-flex items-center gap-1 ${
+                          status === 'BUY'
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/50'
+                            : status === 'HOLD'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                            : status === 'SELL'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                            : 'bg-slate-800/80 text-slate-400 border-slate-700/60'
+                        }`} title={stk.strategySignal.statusDesc}>
+                          {status === 'BUY' && '🔥 買進'}
+                          {status === 'HOLD' && '💎 持有'}
+                          {status === 'SELL' && '⛔ 賣出'}
+                          {status === 'WAIT' && '⏳ 觀望'}
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-mono truncate max-w-[110px] hidden sm:inline-block" title={stk.strategySignal.statusDesc}>
+                          {stk.strategySignal.statusDesc}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* 6. 簡易 K 線 (高密度微縮版) */}
+                    <td className="py-1 px-1.5 text-center whitespace-nowrap">
+                      <MiniKLineChart candles={stk.candles} width={105} height={28} />
+                    </td>
+
+                    {/* 7. 看盤按鈕 */}
+                    <td className="py-1 px-2 text-center whitespace-nowrap">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectStockForChart(stk.symbol, stk.name);
+                        }}
+                        className="px-2 py-0.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] rounded transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1 mx-auto active:scale-95"
+                        title={`載入 ${stk.name} (${stk.code}) 到主技術分析圖表`}
+                      >
+                        <Maximize2 size={10} />
+                        <span>看盤</span>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       ) : (
+        /* 卡片模式 (Cards View 備用) */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {paginatedStocks.map(stk => {
             const isUp = stk.change >= 0;
-            const isStrategyBuyOrHold = stk.strategySignal.status === 'BUY' || stk.strategySignal.status === 'HOLD';
-
-            // 計算 K 線高低點供 SVG 繪製
-            const candles = stk.candles || [];
-            const minPrice = Math.min(...candles.map(c => c.low)) || 1;
-            const maxPrice = Math.max(...candles.map(c => c.high)) || 1;
-            const priceRange = Math.max(0.1, maxPrice - minPrice);
-            const svgHeight = 120;
-            const svgWidth = 320;
-
+            const status = stk.strategySignal.status;
             return (
               <div
                 key={stk.symbol}
-                className={`bg-slate-950 border rounded-2xl p-3.5 flex flex-col justify-between gap-3 transition-all relative overflow-hidden group ${
-                  isStrategyBuyOrHold
-                    ? 'border-emerald-500/40 shadow-emerald-950/20 shadow-md'
-                    : 'border-slate-800 hover:border-slate-700'
-                }`}
+                className="bg-slate-950 border border-slate-800 rounded-2xl p-3.5 flex flex-col justify-between gap-3 hover:border-slate-700 transition-all"
               >
-                {/* 卡片頭部：代號、名稱、產業、自訂策略信號 */}
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-base font-black text-white">{stk.name}</span>
-                      <span className="text-xs font-mono font-bold text-blue-400">{stk.code}</span>
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-900 text-slate-300 border border-slate-800 font-mono">
-                        {stk.market}
-                      </span>
+                      <span className="text-xs font-mono font-bold text-blue-400">({stk.code})</span>
                       <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-900 text-slate-300 border border-slate-800">
                         {stk.sectorName}
                       </span>
                     </div>
-                    <div className="text-[11px] text-slate-400 line-clamp-1 mt-0.5">
-                      {stk.subCategory}
-                    </div>
                   </div>
-
-                  {/* 策略信號標籤 */}
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold border shrink-0 ${stk.strategySignal.badgeClass}`}>
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${stk.strategySignal.badgeClass}`}>
                     {stk.strategySignal.statusLabel}
                   </span>
                 </div>
 
-                {/* 價格與當日量能資訊 */}
                 <div className="flex items-baseline justify-between pt-1 border-t border-slate-900">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-xl font-black font-mono text-white">
-                      ${stk.currentPrice}
-                    </span>
-                    <span className={`text-xs font-mono font-bold flex items-center gap-0.5 ${isUp ? 'text-rose-400' : 'text-emerald-400'}`}>
-                      {isUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                      <span>{isUp ? '+' : ''}{stk.change} ({isUp ? '+' : ''}{stk.changePercent}%)</span>
+                    <span className="text-lg font-black font-mono text-white">${stk.currentPrice}</span>
+                    <span className={`text-xs font-mono font-bold ${isUp ? 'text-rose-400' : 'text-emerald-400'}`}>
+                      {isUp ? '+' : ''}{stk.change} ({isUp ? '+' : ''}{stk.changePercent}%)
                     </span>
                   </div>
                   <div className="text-[10px] text-slate-400 font-mono">
-                    今日量: <strong className="text-slate-200">{(stk.volumeToday / 1000).toFixed(0)}張</strong>
+                    量: {Math.round(stk.volumeToday / 1000).toLocaleString()}張
                   </div>
                 </div>
 
-                {/* 互動式真實 K 線圖區域 */}
-                <div className="bg-slate-900/90 border border-slate-800/80 rounded-xl p-2 relative overflow-hidden">
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono mb-1.5 flex-wrap gap-1">
-                    <div className="flex items-center gap-1.5">
-                      {stk.isRealCandles ? (
-                        <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/90 text-emerald-300 border border-emerald-500/40 font-mono font-bold">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                          Yahoo Finance 真實日K
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-500/40 font-mono font-bold">
-                          <RefreshCw size={9} className="animate-spin" />
-                          即時真實K線同步中
-                        </span>
-                      )}
-                      <span className="text-[9px] text-slate-400">5/20MA</span>
-                    </div>
-                    <span className="text-slate-300 font-bold font-mono">
-                      H: ${maxPrice.toFixed(1)} / L: ${minPrice.toFixed(1)}
-                    </span>
-                  </div>
-
-                  {/* SVG 蠟燭圖與均線 */}
-                  <div className="w-full overflow-hidden">
-                    <svg
-                      viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-                      className="w-full h-[100px] select-none"
-                    >
-                      {/* 網格背景線 */}
-                      <line x1="0" y1="25" x2={svgWidth} y2="25" stroke="#1e293b" strokeDasharray="2,2" />
-                      <line x1="0" y1="60" x2={svgWidth} y2="60" stroke="#1e293b" strokeDasharray="2,2" />
-                      <line x1="0" y1="95" x2={svgWidth} y2="95" stroke="#1e293b" strokeDasharray="2,2" />
-
-                      {/* 蠟燭線繪製 */}
-                      {candles.map((c, i) => {
-                        const candleW = Math.max(2, (svgWidth / candles.length) * 0.7);
-                        const x = (i / (candles.length - 1 || 1)) * (svgWidth - candleW);
-                        const isCandleUp = c.close >= c.open;
-                        const yHigh = svgHeight - ((c.high - minPrice) / priceRange) * (svgHeight - 16) - 8;
-                        const yLow = svgHeight - ((c.low - minPrice) / priceRange) * (svgHeight - 16) - 8;
-                        const yOpen = svgHeight - ((c.open - minPrice) / priceRange) * (svgHeight - 16) - 8;
-                        const yClose = svgHeight - ((c.close - minPrice) / priceRange) * (svgHeight - 16) - 8;
-                        const yBodyTop = Math.min(yOpen, yClose);
-                        const bodyHeight = Math.max(1.5, Math.abs(yClose - yOpen));
-
-                        return (
-                          <g key={i} className="hover:opacity-80">
-                            {/* 影線 */}
-                            <line
-                              x1={x + candleW / 2}
-                              y1={yHigh}
-                              x2={x + candleW / 2}
-                              y2={yLow}
-                              stroke={isCandleUp ? '#f43f5e' : '#10b981'}
-                              strokeWidth="1"
-                            />
-                            {/* 實體 */}
-                            <rect
-                              x={x}
-                              y={yBodyTop}
-                              width={candleW}
-                              height={bodyHeight}
-                              fill={isCandleUp ? '#f43f5e' : '#10b981'}
-                              rx="0.5"
-                            />
-                          </g>
-                        );
-                      })}
-
-                      {/* 5MA (黃線) */}
-                      <polyline
-                        fill="none"
-                        stroke="#fbbf24"
-                        strokeWidth="1.2"
-                        points={candles
-                          .map((c, i) => {
-                            if (!c.ma5) return '';
-                            const x = (i / (candles.length - 1 || 1)) * svgWidth;
-                            const y = svgHeight - ((c.ma5 - minPrice) / priceRange) * (svgHeight - 16) - 8;
-                            return `${x},${y}`;
-                          })
-                          .filter(Boolean)
-                          .join(' ')}
-                      />
-
-                      {/* 20MA (藍線) */}
-                      <polyline
-                        fill="none"
-                        stroke="#38bdf8"
-                        strokeWidth="1.2"
-                        points={candles
-                          .map((c, i) => {
-                            if (!c.ma20) return '';
-                            const x = (i / (candles.length - 1 || 1)) * svgWidth;
-                            const y = svgHeight - ((c.ma20 - minPrice) / priceRange) * (svgHeight - 16) - 8;
-                            return `${x},${y}`;
-                          })
-                          .filter(Boolean)
-                          .join(' ')}
-                      />
-                    </svg>
-                  </div>
-
-                  <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono mt-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="flex items-center gap-1 text-amber-400">
-                        <span className="w-2 h-0.5 bg-amber-400 inline-block" /> 5MA
-                      </span>
-                      <span className="flex items-center gap-1 text-sky-400">
-                        <span className="w-2 h-0.5 bg-sky-400 inline-block" /> 20MA
-                      </span>
-                    </div>
-                    <span className="text-slate-300 font-mono text-[9px] font-semibold">
-                      {candles[0]?.time} ~ {candles[candles.length - 1]?.time} ({candles.length}根日K線)
-                    </span>
-                  </div>
+                <div className="w-full flex justify-center py-1 bg-slate-900/60 rounded-xl border border-slate-800/80">
+                  <MiniKLineChart candles={stk.candles} width={280} height={60} />
                 </div>
 
-                {/* 策略說明與操作按鈕 */}
-                <div className="flex items-center justify-between gap-2 pt-1">
-                  <div className="text-[11px] text-slate-400 truncate max-w-[170px]" title={stk.strategySignal.statusDesc}>
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-900">
+                  <span className="text-[10px] text-slate-400 truncate max-w-[180px]">
                     {stk.strategySignal.statusDesc}
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      onClick={() => onSelectStockForChart(stk.symbol, stk.name)}
-                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg cursor-pointer shadow-md flex items-center gap-1"
-                      title="載入到全屏技術分析看盤"
-                    >
-                      <Maximize2 size={11} />
-                      <span>看盤</span>
-                    </button>
-                  </div>
+                  </span>
+                  <button
+                    onClick={() => onSelectStockForChart(stk.symbol, stk.name)}
+                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg flex items-center gap-1 cursor-pointer"
+                  >
+                    <Maximize2 size={11} />
+                    <span>看盤</span>
+                  </button>
                 </div>
               </div>
             );
@@ -639,32 +785,34 @@ export const TopSectorStocksKLineViewer: React.FC<TopSectorStocksKLineViewerProp
         </div>
       )}
 
-      {/* 分頁控制條 */}
+      {/* 分頁導航控制條 */}
       {pageSize !== -1 && totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-slate-800 pt-3 text-xs text-slate-400">
+        <div className="flex flex-col sm:flex-row items-center justify-between border-t border-slate-800/80 pt-2 text-[11px] text-slate-400 gap-1.5">
           <div className="font-mono">
-            顯示第 {(currentPage - 1) * pageSize + 1} 至 {Math.min(currentPage * pageSize, totalItems)} 檔 · 共 {totalItems} 檔
+            顯示第 {(currentPage - 1) * pageSize + 1} 至 {Math.min(currentPage * pageSize, totalItems)} 檔 · 共 {totalItems} 檔成分股
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <button
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={currentPage === 1}
-              className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
+              className="p-1 rounded-md bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
+              title="上一頁"
             >
-              <ChevronLeft size={14} />
+              <ChevronLeft size={13} />
             </button>
 
-            <span className="px-2.5 py-1 font-mono font-bold text-white bg-slate-950 border border-slate-800 rounded-lg">
+            <span className="px-2 py-0.5 font-mono font-bold text-white bg-slate-950 border border-slate-800 rounded-md text-[11px]">
               {currentPage} / {totalPages}
             </span>
 
             <button
               onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
               disabled={currentPage === totalPages}
-              className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
+              className="p-1 rounded-md bg-slate-950 border border-slate-800 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
+              title="下一頁"
             >
-              <ChevronRight size={14} />
+              <ChevronRight size={13} />
             </button>
           </div>
         </div>
