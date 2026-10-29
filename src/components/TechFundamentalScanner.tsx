@@ -249,17 +249,17 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 relative z-10">
           <div>
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase tracking-wider flex items-center gap-1">
-                <Sparkles size={11} className="text-amber-400" />
-                五大熱門產業 · 自訂策略篩選 & 企業生命週期分析
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 uppercase tracking-wider flex items-center gap-1">
+                <TrendingUp size={11} className="text-rose-400" />
+                熱力圖一周加權漲跌 TOP 5 · 自訂策略選股 & 企業生命週期分析
               </span>
               <span className="text-[11px] text-slate-400 flex items-center gap-1.5 flex-wrap">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
                 <span className="text-emerald-400 font-semibold font-mono">
-                  {scanResult.isRealData ? '🟢 即時官方真實數據源' : '🟢 盤面連線中'}
+                  {scanResult.isRealData ? '🟢 TWSE/TPEx 全市場熱力圖真實數據源' : '🟢 盤面連線中'}
                 </span>
                 <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 font-mono">
-                  {scanResult.dataSource || 'Yahoo Finance & TWSE 臺灣證券交易所'}
+                  {scanResult.dataSource || '臺灣證券交易所 (TWSE) & 證券櫃檯買賣中心 (TPEx) 一周交易熱力圖'}
                 </span>
                 <span className="text-slate-400 text-[10px]">
                   · 更新時間 {lastUpdated.toLocaleTimeString('zh-TW', { hour12: false })}
@@ -267,10 +267,10 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
               </span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-slate-100 tracking-tight flex items-center gap-2">
-              <span>量價矩陣前五大產業・使用者自訂策略選股</span>
+              <span>熱力圖一周加權漲跌前五大產業 · 使用者自訂策略選股</span>
             </h2>
             <p className="text-xs text-slate-400 mt-1 max-w-3xl leading-relaxed">
-              1. 從最近五筆全產業量價矩陣中找出熱門產業板塊 → 2. 撈取熱門產業全股票真實 K 線 → 3. 依照使用者自訂回測策略找到標示買進或持有的股票 → 4. 查找這些股票的 ROE、ROA、毛利率 → 5. 判定企業生命週期中創立期、成長期、成熟期、衰退或轉型期！
+              單看 35 大產業熱力圖中「一周加權漲跌幅 (Weekly Change %)」由強至弱挑選前 5 大熱門產業板塊 → 撈取全成分股真實 K 線 → 依照使用者自訂回測策略找到標示買進或持有的股票 → 查找 ROE、ROA、毛利率並判定企業生命週期！
             </p>
           </div>
 
@@ -278,17 +278,17 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
             <button
               onClick={handleTriggerStrategyScan}
               disabled={isScanning}
-              className="flex-1 sm:flex-initial px-5 py-2.5 bg-linear-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 transition-all cursor-pointer group active:scale-95"
+              className="flex-1 sm:flex-initial px-5 py-2.5 bg-linear-to-r from-rose-600 via-amber-600 to-purple-600 hover:from-rose-500 hover:to-amber-500 disabled:opacity-60 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-rose-900/30 flex items-center justify-center gap-2 transition-all cursor-pointer group active:scale-95"
             >
               {isScanning ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>正在以自訂策略篩選前五大產業股票...</span>
+                  <span>正在以自訂策略篩選一周漲幅前五大產業股票...</span>
                 </>
               ) : (
                 <>
                   <Play size={15} className="fill-white" />
-                  <span>🧠 重新以使用者策略篩選前五大產業</span>
+                  <span>🚀 重新依一周加權漲跌篩選前五大產業</span>
                 </>
               )}
             </button>
@@ -300,8 +300,8 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
           <div className="mt-4 pt-3 border-t border-slate-800/80">
             <div className="flex items-center justify-between text-xs text-slate-300 font-mono mb-1.5">
               <span>
-                {scanStep === 1 && '步驟 1/4: 從最近五筆全產業量價矩陣中精確計算出前 5 大熱門產業板塊...'}
-                {scanStep === 2 && '步驟 2/4: 撈取前 5 大熱門產業中所有成分股票的真實 K 線並計算完整技術指標...'}
+                {scanStep === 1 && '步驟 1/4: 單看熱力圖中一周加權漲跌挑選出前 5 大強勢產業板塊...'}
+                {scanStep === 2 && '步驟 2/4: 撈取前 5 大產業中所有成分股票的真實 K 線並計算完整技術指標...'}
                 {scanStep === 3 && '步驟 3/4: 依照使用者自訂策略條件執行回測，篩選出標示買進 (BUY) 或持有 (HOLD) 的股票...'}
                 {scanStep === 4 && '步驟 4/4: 查找標示買進/持有標的之 ROE、ROA、毛利率，並判斷企業所處生命週期階段！'}
               </span>
@@ -348,27 +348,27 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
       {/* ========================================================================= */}
       {activeMainTab === 'strategyScreen' && (
         <div className="flex flex-col gap-4 w-full">
-          {/* CSS selector 2: Top 5 近期熱門產業看板 (依據最近 5 筆量價資料演算選出) */}
+          {/* Top 5 近期熱門產業看板 (單純看熱力圖中一周加權漲跌挑選) */}
           <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2 flex-wrap border-b border-slate-800 pb-2.5">
               <div className="flex items-center gap-2">
-                <span className="p-1 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                  <Flame size={15} />
+                <span className="p-1 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                  <TrendingUp size={15} />
                 </span>
                 <div>
                   <h3 className="text-xs sm:text-sm font-black text-white flex items-center gap-2 flex-wrap">
-                    <span>🏆 依最近五筆量價矩陣鎖定前 5 大熱門產業板塊</span>
-                    <span className="text-[10px] px-2 py-0.2 rounded-full bg-blue-950 text-blue-300 font-mono border border-blue-800/60">
-                      佔10大產業近5筆總成交量 {(scanResult.top5Sectors.reduce((sum, s) => sum + s.volumeSharePercent, 0)).toFixed(1)}%
+                    <span>🏆 依熱力圖「一周加權漲跌」前 5 大產業板塊</span>
+                    <span className="text-[10px] px-2 py-0.2 rounded-full bg-rose-950 text-rose-300 font-mono border border-rose-800/60 font-bold">
+                      一周漲幅領先榜
                     </span>
                   </h3>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    已自動撈取前 5 大產業所有成分股真實 K 線，並套用您的自訂策略判定「買進」或「持倉續抱」標的：
+                    直接依一周加權漲跌挑選前五大強勢產業（{scanResult.top5Sectors.map(s => `${s.sector} ${s.fiveDayCumulativeChange >= 0 ? '+' : ''}${s.fiveDayCumulativeChange}%`).join('、')}），並套用自訂策略判定「買進」或「持倉續抱」標的：
                   </p>
                 </div>
               </div>
               <div className="text-[11px] text-slate-400 font-mono">
-                最近5筆10大產業總成交: <strong className="text-slate-200">{scanResult.fiveDayMarketTurnoverTotal?.toLocaleString() || '16,800'} 億元</strong>
+                前五大產業1週總成交: <strong className="text-slate-200">{scanResult.top5Sectors.reduce((sum, s) => sum + s.fiveDayTotalTurnover, 0).toLocaleString()} 億元</strong>
               </div>
             </div>
 
@@ -391,8 +391,8 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                     }`}
                   >
                     <div className="flex items-center justify-between gap-1 flex-wrap">
-                      <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-slate-800 text-amber-400 border border-slate-700">
-                        🔥 No.{sec.rank} 熱門產業
+                      <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-slate-800 text-rose-400 border border-slate-700">
+                        🏆 漲幅 No.{sec.rank}
                       </span>
                       <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
                         {sec.volumeSharePercent}% 佔比
@@ -405,20 +405,19 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                           {sec.sector}
                         </span>
                         <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 font-mono">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                          實時全成分股
+                          {sec.stocksCount} 檔成分股
                         </span>
                       </div>
 
-                      <div className="flex items-center justify-between text-[11px] font-mono mt-1">
-                        <span className="text-slate-400">近5筆總成交</span>
-                        <span className="text-amber-300 font-bold">{sec.fiveDayTotalTurnover.toLocaleString()} 億</span>
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] font-mono">
-                        <span className="text-slate-400">近5筆漲跌幅</span>
-                        <span className={`font-bold ${isCumulativeUp ? 'text-rose-400' : 'text-emerald-400'}`}>
+                      <div className="flex items-center justify-between text-[11px] font-mono mt-1 bg-slate-900/90 px-2 py-1 rounded-lg border border-slate-800">
+                        <span className="text-slate-400">一周加權漲跌</span>
+                        <span className={`font-black text-sm ${isCumulativeUp ? 'text-rose-400' : 'text-emerald-400'}`}>
                           {isCumulativeUp ? '+' : ''}{sec.fiveDayCumulativeChange}%
                         </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] font-mono mt-1 text-slate-400">
+                        <span>近5筆總成交</span>
+                        <span className="text-amber-300 font-bold">{sec.fiveDayTotalTurnover.toLocaleString()} 億</span>
                       </div>
                       <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-0.5">
                         <span>日成交額</span>
