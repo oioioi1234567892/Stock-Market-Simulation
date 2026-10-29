@@ -302,6 +302,12 @@ export interface DailyMarketMarginPoint {
   marginBalance: number; // 全市場融資餘額 (億元) (e.g. 3120.5)
   marginBalanceChange: number; // 融資餘額當日增減 (億元)
   riskLevel: LeverageRiskLevel;
+  // 小台散戶多空比與期交所籌碼
+  retailRatio: number; // 散戶多空比 % (e.g. +33.8% 或 -18.5%)
+  retailLong: number; // 散戶多單留倉 (口)
+  retailShort: number; // 散戶空單留倉 (口)
+  retailNet: number; // 散戶淨部位 (多單 - 空單, 口)
+  retailTotalOI: number; // 小台全市場未平倉總量 (口)
 }
 
 export interface MarketMarginSummary {
@@ -317,6 +323,17 @@ export interface MarketMarginSummary {
   riskTitle: string;
   riskDescription: string;
   riskBadgeColor: string;
+  // 小台散戶多空比實時指標
+  latestRetailRatio: number; // 最新散戶多空比 %
+  latestRetailRatioChange: number; // 散戶多空比日增減 %
+  latestRetailNet: number; // 散戶淨多單口數
+  latestRetailLong: number; // 散戶多單口數
+  latestRetailShort: number; // 散戶空單口數
+  latestRetailTotalOI: number; // 小台總未平倉量
+  retailSignal: 'EXTREME_BULLISH' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'EXTREME_BEARISH';
+  retailSignalLabel: string;
+  retailSignalDesc: string;
+  retailSignalBadgeColor: string;
   // 操盤手極限壓力測試 (Stress Test)
   pointsDropTo140Warning: number; // 距 140% 追繳警戒線尚可承受跌點 (點)
   percentDropTo140Warning: number; // 距 140% 追繳警戒線尚可承受跌幅 (%)

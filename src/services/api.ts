@@ -1,4 +1,5 @@
 import { StockQuote, CandleData, WatchlistItem, MarketMarginSummary } from '../types/stock.ts';
+import { MarketHeatmapResponse } from '../types/marketHeatmap.ts';
 import { TaiwanStockInfo, POPULAR_TAIWAN_STOCKS, resolveTaiwanSymbol, searchTaiwanStocks } from '../data/taiwanStocks.ts';
 import { generateFallbackCandles, generateFallbackQuote } from './clientStockFallback.ts';
 import { MarketFinancialProgress, calculateMarketFinancialProgress } from '../utils/marketFinancialCalendar.ts';
@@ -448,10 +449,10 @@ export async function fetchAiBatchAnalysis(): Promise<Record<string, AiStockFina
 }
 
 /**
- * 取得最新交易量/上漲量能前 5 大板塊，並透過 AI Agent 研判 3 個月 K 線形態精選 Top 20 放量起漲股
+ * 取得最新交易量/上漲動能前 5 大板塊，真實自 Yahoo Finance 與台灣證券交易所撈取最新數據
  */
 export async function fetchVolumeBreakoutScan(
-  rankingBy: 'upwardVolume' | 'volumeShare' = 'upwardVolume',
+  rankingBy: 'momentum' | 'upwardVolume' | 'volumeShare' | 'cumChange' | 'turnover' = 'momentum',
   forceRefresh: boolean = false
 ): Promise<VolumeBreakoutScanResult> {
   try {
@@ -461,7 +462,7 @@ export async function fetchVolumeBreakoutScan(
     const res = await fetch(`/api/ai/volume-breakout/scan?${params.toString()}`);
     if (res.ok && isJsonResponse(res)) {
       const data = await res.json();
-      if (data && Array.isArray(data.top20Stocks) && data.top20Stocks.length > 0) {
+      if (data && Array.isArray(data.allIndustrySectors) && data.allIndustrySectors.length > 0) {
         return data;
       }
     }
@@ -495,5 +496,26 @@ export async function fetchMarketMarginMaintenance(
   }
   return null;
 }
+
+/**
+ * 撈取台灣股市 1954 檔 35 個官方產業 1 週交易資料與熱力圖 (相容 rsi.pttstock.tw/heatmap)
+ */
+export async function fetchMarket35SectorsHeatmap(forceRefresh: boolean = false): Promise<MarketHeatmapResponse | null> {
+  try {
+    const params = new URLSearchParams();
+    if (forceRefresh) params.set('refresh', '1');
+    const res = await fetch(`/api/stocks/heatmap/market-35-sectors?${params.toString()}`);
+    if (res.ok && isJsonResponse(res)) {
+      const data: MarketHeatmapResponse = await res.json();
+      if (data && Array.isArray(data.sectors) && data.sectors.length > 0) {
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn('fetchMarket35SectorsHeatmap network error:', err);
+  }
+  return null;
+}
+
 
 

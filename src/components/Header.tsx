@@ -130,7 +130,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <Sparkles size={12} className={activeView === 'fundamentals' ? 'text-amber-300' : 'text-amber-400'} />
-              <span>五大熱門產業 & AI起漲20</span>
+              <span>五大熱門產業 · 自訂策略選股</span>
             </button>
             <button
               onClick={() => onSwitchView('margin')}
@@ -141,7 +141,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <Scale size={12} className={activeView === 'margin' ? 'text-amber-300' : 'text-amber-400'} />
-              <span>大盤融資維持率</span>
+              <span>大盤維持率 & 散戶多空比</span>
             </button>
           </div>
         )}

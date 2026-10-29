@@ -220,6 +220,26 @@ export const POPULAR_TAIWAN_STOCKS: TaiwanStockInfo[] = [
   { code: '00757', name: '統一FANG+', symbol: '00757.TW', market: 'TWSE', category: '海外科技ETF', aliases: ['FANG+', '00757'] },
   { code: '00662', name: '富邦NASDAQ-100', symbol: '00662.TW', market: 'TWSE', category: '海外科技ETF', aliases: ['那斯達克', '00662'] },
   { code: '00830', name: '國泰費城半導體', symbol: '00830.TW', market: 'TWSE', category: '海外科技ETF', aliases: ['費半', '00830'] },
+  {
+    code: '009831',
+    name: 'FT核心AI電力算力',
+    symbol: '009831.TW',
+    market: 'TWSE',
+    category: '主題型ETF',
+    aliases: [
+      '富蘭克林華美核心AI電力算力',
+      '富蘭克林核心AI電力算力',
+      'FT核心AI電力算力ETF',
+      '009831',
+      '009831.TW',
+      'AI電力算力',
+      '核心AI電力算力',
+      '富蘭克林AI電力',
+      '009831 ETF',
+      '009831ETF',
+      '電力算力'
+    ]
+  },
 ];
 
 /**

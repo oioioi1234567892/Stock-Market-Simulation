@@ -74,36 +74,16 @@ export const PATTERN_CONFIG: Record<
   },
 };
 
-/**
- * 台股各項產業分類定義
- */
-export interface SectorDefinition {
-  sectorId: string;
-  sectorName: string;
-  categoryGroup: '電子科技' | '傳產製造' | '生技醫療' | '金融內需';
-  subDescription: string;
-  baseTurnoverDaily: number; // 基準日成交額 (億元)
-  baseVolumeShares: number;   // 基準日成交張數 (萬張)
-  fiveDayVolumeTrend: number[]; // 最近 5 筆日成交額比例 [0.88, 0.95, 1.05, 1.15, 1.35]
-  fiveDayReturnTrend: number[]; // 最近 5 筆單日漲跌幅 [%]
-  mainCatalyst: string;
-  stocks: {
-    code: string;
-    name: string;
-    symbol: string;
-    subCategory: string;
-    basePrice: number;
-    baseVolumeToday: number;
-    baseVolumeMa20: number;
-    catalyst: string;
-    patternBias: BreakoutPatternType;
-  }[];
-}
+export type { SectorDefinition } from '../data/taiwanSectors40Data.ts';
+import { TAIWAN_SECTORS_40, SectorDefinition } from '../data/taiwanSectors40Data.ts';
 
 /**
- * 完整台股各項產業分類庫 (包含電子、傳產、航運、電機、金融、生技、通訊、光電等)
+ * 完整符合使用者指定 40 項分類別之台股全產業資料庫
  */
-export const ALL_TAIWAN_SECTORS: SectorDefinition[] = [
+export const ALL_TAIWAN_SECTORS: SectorDefinition[] = TAIWAN_SECTORS_40;
+
+// 保留備援結構
+const _LEGACY_10_SECTORS: SectorDefinition[] = [
   // 1. 半導體業 (台股交易量第一大族群)
   {
     sectorId: 'semiconductor',
@@ -1191,7 +1171,7 @@ export function generateBreakoutCandlesForStock(
  */
 export function runVolumeBreakoutScan(
   candlesMap?: Map<string, CandleData[]>,
-  rankingCriteria: 'upwardVolume' | 'volumeShare' = 'upwardVolume'
+  rankingCriteria: 'momentum' | 'upwardVolume' | 'volumeShare' | 'cumChange' | 'turnover' = 'momentum'
 ): VolumeBreakoutScanResult {
   // 1. 從收集到的真實日 K 線中提取最近 5 個真實台股交易日 (排除週末與休市日)
   const allRealDatesSet = new Set<string>();
@@ -1463,16 +1443,34 @@ export function runVolumeBreakoutScan(
     };
 
     ind.heatScore = Math.min(99, upwardVolumeScore + relativeStrengthScore + volumeShareScore + accelerationScore);
+
+    // 4) 上漲動能評分 (Upward Momentum Score): 大盤量能佔比與成交規模 (50%) + 5日累積漲幅 (25%) + 上漲日買盤放量比 (15%) + 超額動能 (10%)
+    const momentumScore = Number(
+      (
+        (ind.fiveDayVolumeSharePercent * 2.8) +
+        (ind.fiveDayTotalTurnover * 0.04) +
+        (ind.fiveDayCumulativeChange * 1.5) +
+        ((ind.upwardVolumeRatio || 50) * 0.25) +
+        (ind.relativeStrengthVsTaiex * 0.8)
+      ).toFixed(1)
+    );
+    ind.momentumScore = momentumScore;
   });
 
-  // 2. 依照量能比重 (upwardVolumeRatio 上漲量能比重 或 fiveDayVolumeSharePercent 大盤量能佔比) 進行嚴格降冪排名，選出前 5 個量能比重最高之熱門產業
+  // 2. 挑出上漲動能最佳的五個產業 (或依上漲量能比重/大盤量能佔比) 進行嚴格降冪排名
   const sortedIndustries = [...processedIndustries].sort((a, b) => {
+    if (rankingCriteria === 'momentum') {
+      const diff = (b.momentumScore ?? 0) - (a.momentumScore ?? 0);
+      if (Math.abs(diff) > 0.01) return diff;
+      return b.fiveDayCumulativeChange - a.fiveDayCumulativeChange;
+    }
     if (rankingCriteria === 'upwardVolume') {
       const diff = (b.upwardVolumeRatio ?? 0) - (a.upwardVolumeRatio ?? 0);
-      if (Math.abs(diff) > 0.01) {
-        return diff;
-      }
+      if (Math.abs(diff) > 0.01) return diff;
       return b.fiveDayVolumeSharePercent - a.fiveDayVolumeSharePercent;
+    }
+    if (rankingCriteria === 'cumChange') {
+      return b.fiveDayCumulativeChange - a.fiveDayCumulativeChange;
     }
     if (b.fiveDayVolumeSharePercent !== a.fiveDayVolumeSharePercent) {
       return b.fiveDayVolumeSharePercent - a.fiveDayVolumeSharePercent;
@@ -1484,7 +1482,13 @@ export function runVolumeBreakoutScan(
   top5HotIndustries.forEach((ind, idx) => {
     ind.isTop5Hot = true;
     ind.hotRank = idx + 1;
-    if (rankingCriteria === 'upwardVolume') {
+    if (rankingCriteria === 'momentum' || !rankingCriteria) {
+      if (idx === 0) ind.momentumGradeLabel = '👑 上漲動能冠軍・量價齊揚強勢龍頭';
+      else if (idx === 1) ind.momentumGradeLabel = '🚀 上漲動能亞軍・主力買盤大舉吸籌';
+      else if (idx === 2) ind.momentumGradeLabel = '⚡ 上漲動能季軍・突破箱頂多頭推進';
+      else if (idx === 3) ind.momentumGradeLabel = '⭐ 上漲動能第4・陽線爆量量縮洗盤';
+      else ind.momentumGradeLabel = '📈 上漲動能第5・資金持續淨流入攻堅';
+    } else if (rankingCriteria === 'upwardVolume') {
       if (idx === 0) ind.momentumGradeLabel = '🔥 上漲買盤吸籌最高龍頭板塊';
       else if (idx === 1) ind.momentumGradeLabel = '🚀 買盤量能強勢進駐板塊';
       else if (idx === 2) ind.momentumGradeLabel = '⚡ 資金淨流入強攻板塊';

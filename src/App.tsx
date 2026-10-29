@@ -288,7 +288,7 @@ export default function App() {
             }`}
           >
             <Sparkles size={13} className={activeMobileTab === 'fundamentals' ? 'text-amber-300' : 'text-amber-400'} />
-            <span>熱門起漲</span>
+            <span>產業策略</span>
           </button>
           <button
             onClick={() => {
@@ -346,7 +346,10 @@ export default function App() {
             ? 'block'
             : 'hidden'
         }`}>
-          <TechFundamentalScanner onSelectStockForChart={handleSelectStock} />
+          <TechFundamentalScanner
+            onSelectStockForChart={handleSelectStock}
+            userStrategy={activeStrategy}
+          />
         </div>
 
         {/* 3. Live Trading Terminal & Backtest System View */}

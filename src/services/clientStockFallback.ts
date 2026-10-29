@@ -37,6 +37,11 @@ const BASE_PRICES: Record<string, { price: number; name: string; volatility: num
   '1519.TW': { price: 638, name: '華城', volatility: 0.035, trend: 0.001 },
   '6669.TW': { price: 2150, name: '緯穎', volatility: 0.025, trend: 0.0008 },
   '3661.TW': { price: 2480, name: '世芯-KY', volatility: 0.032, trend: 0.0006 },
+  '009831.TW': { price: 10.15, name: 'FT核心AI電力算力', volatility: 0.012, trend: 0.0008 },
+  '009831': { price: 10.15, name: 'FT核心AI電力算力', volatility: 0.012, trend: 0.0008 },
+  '00919.TW': { price: 23.8, name: '群益台灣精選高息', volatility: 0.01, trend: 0.0004 },
+  '00929.TW': { price: 18.5, name: '復華台灣科技優息', volatility: 0.012, trend: 0.0004 },
+  '00940.TW': { price: 9.6, name: '元大台灣價值高息', volatility: 0.01, trend: 0.0002 },
 };
 
 /**

@@ -17,146 +17,168 @@ import {
   CheckCircle2,
   LayoutGrid,
   Table as TableIcon,
-  SlidersHorizontal,
-  Calendar,
   Award,
-  BookOpen,
   ArrowUpRight,
+  Sliders,
+  Check,
+  Info,
 } from 'lucide-react';
 import {
-  BreakoutStockCandidate,
   TopSectorVolumeInfo,
   VolumeBreakoutScanResult,
-  BreakoutPatternType,
   IndustrySectorInfo,
+  StrategyFilteredStock,
+  CorporateLifeCyclePhase,
 } from '../types/volumeBreakout.ts';
-import { runVolumeBreakoutScan, PATTERN_CONFIG } from '../utils/aiVolumeBreakoutEngine.ts';
+import { CandleData, StrategyConfig } from '../types/stock.ts';
+import { runVolumeBreakoutScan } from '../utils/aiVolumeBreakoutEngine.ts';
+import { filterTop5SectorStocksByStrategy, isSectorMatch } from '../utils/corporateLifecycleEngine.ts';
+import { DEFAULT_STRATEGY, DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS } from '../utils/backtestEngine.ts';
+import { loadStrategyFromCookie } from '../utils/cookieStorage.ts';
+import { StrategyStockDetailModal } from './StrategyStockDetailModal.tsx';
+import { IndustryHeatmap } from './IndustryHeatmap.tsx';
+import { TopSectorStocksKLineViewer } from './TopSectorStocksKLineViewer.tsx';
 import { fetchVolumeBreakoutScan } from '../services/api.ts';
-import { AiVolumeBreakoutModal } from './AiVolumeBreakoutModal.tsx';
 
 interface TechFundamentalScannerProps {
   onSelectStockForChart: (symbol: string, name: string) => void;
+  userStrategy?: StrategyConfig;
 }
 
 export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
   onSelectStockForChart,
+  userStrategy,
 }) => {
-  // 核心掃描數據
+  // 核心量價掃描數據 (最近 5 筆量價矩陣與前 5 大熱門產業)
   const [scanResult, setScanResult] = useState<VolumeBreakoutScanResult>(() => runVolumeBreakoutScan());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
-  // 主頁面導航分頁 (1: 熱門起漲20主控台, 2: 最近五筆產業量價矩陣)
-  const [activeMainTab, setActiveMainTab] = useState<'hotBreakout' | 'recent5Stats'>('hotBreakout');
+  // 主頁面導航分頁 (1: 🔥 五大動能產業 · 自訂策略選股 & 近3個月K線圖, 2: 🗺️ 35大產業全市場熱力圖)
+  const [activeMainTab, setActiveMainTab] = useState<'strategyScreen' | 'heatmap'>('strategyScreen');
 
-  // AI 掃描動畫進度條 (4 步驟)
+  // 使用者自訂回測策略 (優先使用 prop，否則讀取 cookie 或預設)
+  const currentStrategy = useMemo<StrategyConfig>(() => {
+    return userStrategy || loadStrategyFromCookie(DEFAULT_ENTRY_CONDITIONS, DEFAULT_EXIT_CONDITIONS) || DEFAULT_STRATEGY;
+  }, [userStrategy]);
+
+  // 動態掃描進度動畫狀態
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanProgress, setScanProgress] = useState<number>(0);
   const [scanStep, setScanStep] = useState<number>(1);
 
   // 篩選狀態
   const [selectedSector, setSelectedSector] = useState<string>('ALL');
-  const [selectedPattern, setSelectedPattern] = useState<string>('ALL');
-  const [onlySurgeOver15x, setOnlySurgeOver15x] = useState<boolean>(false);
+  const [selectedSignal, setSelectedSignal] = useState<'ALL' | 'BUY' | 'HOLD'>('ALL');
+  const [selectedLifecycle, setSelectedLifecycle] = useState<'ALL' | CorporateLifeCyclePhase>('ALL');
   const [searchKeyword, setSearchKeyword] = useState<string>('');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
 
-  // 最近五筆產業量價矩陣排序依據 (上漲量能比重排名)
-  const [sectorSortBy, setSectorSortBy] = useState<'volumeShare' | 'upwardVolume' | 'turnover' | 'cumChange'>('upwardVolume');
-
   // 彈窗
-  const [detailStock, setDetailStock] = useState<BreakoutStockCandidate | null>(null);
+  const [detailStock, setDetailStock] = useState<StrategyFilteredStock | null>(null);
 
-  // 初始化時自動向後台請求最新即時數據 (以表格上漲量能比重為基準)
+  // 真實日 K 線字典快取 (由後端 Yahoo Finance 抓取提供)
+  const [candlesMapState, setCandlesMapState] = useState<Map<string, CandleData[]>>(() => new Map());
+
+  // 執行自訂策略篩選前 5 大產業股票
+  const [strategyStocks, setStrategyStocks] = useState<StrategyFilteredStock[]>(() => {
+    return filterTop5SectorStocksByStrategy(scanResult.top5Sectors, currentStrategy);
+  });
+
+  // 初次載入：即刻向後台 Yahoo Finance / 交易所 OpenAPI 撈取最新真實數據
   useEffect(() => {
     let isCancelled = false;
-    const loadScanData = async () => {
+    async function initRealData() {
+      setIsScanning(true);
+      setScanProgress(20);
+      setScanStep(1);
       try {
-        setIsLoading(true);
-        const data = await fetchVolumeBreakoutScan('upwardVolume');
-        if (!isCancelled && data && data.top20Stocks?.length > 0) {
-          setScanResult(data);
-          setLastUpdated(new Date(data.scanTimestamp || Date.now()));
+        setScanProgress(45);
+        setScanStep(2);
+        const realData = await fetchVolumeBreakoutScan('momentum');
+        if (!isCancelled && realData) {
+          setScanProgress(75);
+          setScanStep(3);
+          setScanResult(realData);
+          const realMap = new Map<string, CandleData[]>();
+          if (realData.candlesMap) {
+            Object.entries(realData.candlesMap).forEach(([sym, cList]) => {
+              realMap.set(sym, cList);
+            });
+            setCandlesMapState(realMap);
+          }
+          setScanProgress(90);
+          setScanStep(4);
+          const matched = filterTop5SectorStocksByStrategy(realData.top5Sectors, currentStrategy, realMap);
+          setStrategyStocks(matched);
+          setLastUpdated(new Date(realData.scanTimestamp || Date.now()));
         }
       } catch (err) {
-        console.warn('Failed to fetch breakout scan from server:', err);
+        console.warn('Real data scan error:', err);
       } finally {
-        if (!isCancelled) setIsLoading(false);
+        if (!isCancelled) {
+          setScanProgress(100);
+          setIsScanning(false);
+        }
       }
-    };
-    loadScanData();
-    return () => {
-      isCancelled = true;
-    };
-  }, []);
+    }
+    initRealData();
+    return () => { isCancelled = true; };
+  }, [currentStrategy]);
 
-  // 觸發 AI Agent 重新撈取 Top 5 板塊與 3 個月 K 線圖形態研判
-  const handleTriggerAiScan = () => {
+  // 重新觸發掃描 (強制向 Yahoo Finance 與交易所抓取最新即時資料)
+  const handleTriggerStrategyScan = async () => {
     if (isScanning) return;
     setIsScanning(true);
-    setScanProgress(0);
+    setScanProgress(10);
     setScanStep(1);
 
-    // 步驟 1: 查找台股各項產業分類並統計最近五筆交易量與漲跌幅
-    const t1 = setTimeout(() => {
-      setScanProgress(25);
+    try {
+      setScanProgress(40);
       setScanStep(2);
-    }, 400);
-
-    // 步驟 2: 從量價資料中計算篩選出 5 個近期熱門產業
-    const t2 = setTimeout(() => {
-      setScanProgress(55);
+      const freshScan = await fetchVolumeBreakoutScan('momentum', true);
+      setScanProgress(70);
       setScanStep(3);
-    }, 850);
+      setScanResult(freshScan);
 
-    // 步驟 3: 從 5 大熱門產業中使用 yfinance 蒐集 3 個月真實 K 線並執行 6 大指標辨識
-    const t3 = setTimeout(() => {
-      setScanProgress(80);
-      setScanStep(4);
-    }, 1350);
-
-    // 步驟 4: 精選 20 檔即將放量起漲黑馬股並產出操盤手價格推估
-    const t4 = setTimeout(async () => {
-      setScanProgress(100);
-      try {
-        const fresh = await fetchVolumeBreakoutScan(sectorSortBy === 'volumeShare' ? 'volumeShare' : 'upwardVolume', true);
-        if (fresh && fresh.top20Stocks?.length > 0) {
-          setScanResult(fresh);
-        } else {
-          setScanResult(runVolumeBreakoutScan(undefined, sectorSortBy === 'volumeShare' ? 'volumeShare' : 'upwardVolume'));
-        }
-      } catch {
-        setScanResult(runVolumeBreakoutScan(undefined, sectorSortBy === 'volumeShare' ? 'volumeShare' : 'upwardVolume'));
+      const realMap = new Map<string, CandleData[]>();
+      if (freshScan.candlesMap) {
+        Object.entries(freshScan.candlesMap).forEach(([sym, cList]) => {
+          realMap.set(sym, cList);
+        });
+        setCandlesMapState(realMap);
       }
-      setLastUpdated(new Date());
-      setIsScanning(false);
-    }, 1800);
 
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
-      clearTimeout(t4);
-    };
+      setScanProgress(90);
+      setScanStep(4);
+      const matched = filterTop5SectorStocksByStrategy(freshScan.top5Sectors, currentStrategy, realMap);
+      setStrategyStocks(matched);
+      setLastUpdated(new Date(freshScan.scanTimestamp || Date.now()));
+    } catch (err) {
+      console.error('Trigger real scan error:', err);
+    } finally {
+      setScanProgress(100);
+      setIsScanning(false);
+    }
   };
 
-  // 篩選與排序後的 Top 20 股票清單
+  // 篩選後的標的清單
   const filteredStocks = useMemo(() => {
-    let list = scanResult.top20Stocks || [];
+    let list = strategyStocks;
 
     // 板塊過濾
     if (selectedSector !== 'ALL') {
-      list = list.filter(s => s.sector === selectedSector);
+      list = list.filter(s => isSectorMatch(s.sector, selectedSector));
     }
 
-    // 6 大技術指標形態過濾
-    if (selectedPattern !== 'ALL') {
-      list = list.filter(s => s.patternTag === selectedPattern);
+    // 策略訊號過濾 (全部 / 買進 / 續抱)
+    if (selectedSignal !== 'ALL') {
+      list = list.filter(s => s.signalStatus === selectedSignal);
     }
 
-    // 爆量 > 1.5x 過濾
-    if (onlySurgeOver15x) {
-      list = list.filter(s => s.volumeSurgeRatio >= 1.5);
+    // 企業生命週期過濾 (成長期 / 成熟期 / 擴張初期 / 轉型期 / 衰退期)
+    if (selectedLifecycle !== 'ALL') {
+      list = list.filter(s => s.lifeCycle === selectedLifecycle);
     }
 
     // 關鍵字搜尋
@@ -167,51 +189,56 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
           s.name.toLowerCase().includes(cleanKw) ||
           s.code.includes(cleanKw) ||
           s.symbol.toLowerCase().includes(cleanKw) ||
-          s.patternName.toLowerCase().includes(cleanKw) ||
-          s.patternTag.toLowerCase().includes(cleanKw)
+          s.subCategory.toLowerCase().includes(cleanKw) ||
+          s.lifeCycleLabel.toLowerCase().includes(cleanKw)
       );
     }
 
     return list;
-  }, [scanResult.top20Stocks, selectedSector, selectedPattern, onlySurgeOver15x, searchKeyword]);
+  }, [strategyStocks, selectedSector, selectedSignal, selectedLifecycle, searchKeyword]);
 
-  // 6 大技術指標固定清單 (滿足用戶指名需求)
-  const MANDATORY_PATTERNS = [
-    'VCP突破',
-    '趨勢反轉向上',
-    '均線糾結帶量突破',
-    '旗形突破',
-    '杯柄突破',
-    'W底出量突破',
-  ];
-
-  // 計算每種形態在當前 20 檔股票中的數量
-  const patternCountMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    (scanResult.top20Stocks || []).forEach(s => {
-      map[s.patternTag] = (map[s.patternTag] || 0) + 1;
+  // 生命週期統計計數
+  const lifecycleCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      GROWTH: 0,
+      MATURE: 0,
+      STARTUP: 0,
+      TRANSITION: 0,
+      DECLINE: 0,
+    };
+    strategyStocks.forEach(s => {
+      counts[s.lifeCycle] = (counts[s.lifeCycle] || 0) + 1;
     });
-    return map;
-  }, [scanResult.top20Stocks]);
+    return counts;
+  }, [strategyStocks]);
 
+  // 訊號統計計數
+  const signalCounts = useMemo(() => {
+    let buy = 0;
+    let hold = 0;
+    strategyStocks.forEach(s => {
+      if (s.signalStatus === 'BUY') buy++;
+      else if (s.signalStatus === 'HOLD') hold++;
+    });
+    return { buy, hold, total: strategyStocks.length };
+  }, [strategyStocks]);
 
-  // 依照量能比重 (大盤量能佔比 / 上漲量能比重) 進行嚴格排名
-  const sortedIndustrySectors = useMemo(() => {
-    const list = [...(scanResult.allIndustrySectors || [])];
-    if (sectorSortBy === 'volumeShare') {
-      return list.sort((a, b) => b.fiveDayVolumeSharePercent - a.fiveDayVolumeSharePercent);
-    }
-    if (sectorSortBy === 'upwardVolume') {
-      return list.sort((a, b) => (b.upwardVolumeRatio ?? 0) - (a.upwardVolumeRatio ?? 0));
-    }
-    if (sectorSortBy === 'turnover') {
-      return list.sort((a, b) => b.fiveDayTotalTurnover - a.fiveDayTotalTurnover);
-    }
-    if (sectorSortBy === 'cumChange') {
-      return list.sort((a, b) => b.fiveDayCumulativeChange - a.fiveDayCumulativeChange);
-    }
-    return list;
-  }, [scanResult.allIndustrySectors, sectorSortBy]);
+  // 使用者自訂策略中啟用的進出場條件簡述
+  const activeStrategySummary = useMemo(() => {
+    const enabledEntries = (currentStrategy.entryConditions || [])
+      .filter(c => c.enabled)
+      .map(c => c.name);
+    const enabledExits = (currentStrategy.exitConditions || [])
+      .filter(c => c.enabled)
+      .map(c => c.name);
+    return {
+      name: currentStrategy.name || '自訂量化回測策略',
+      entries: enabledEntries.length > 0 ? enabledEntries : ['周月金叉 (MA5>MA20)', '突破過去30日最高價', '股價站上MA20'],
+      exits: enabledExits.length > 0 ? enabledExits : ['周月死叉 (MA5<MA20)'],
+      atrInitialStop: currentStrategy.atrInitialStopMultiplier,
+      atrTrailingStop: currentStrategy.atrTrailingStopMultiplier,
+    };
+  }, [currentStrategy]);
 
   return (
     <div className="flex flex-col gap-4 w-full">
@@ -224,59 +251,59 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase tracking-wider flex items-center gap-1">
                 <Sparkles size={11} className="text-amber-400" />
-                AI Agent 產業量價獵殺雷達 · 4 步驟深度推算
+                五大熱門產業 · 自訂策略篩選 & 企業生命週期分析
               </span>
-              <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
+              <span className="text-[11px] text-slate-400 flex items-center gap-1.5 flex-wrap">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                <span className="text-emerald-400 font-semibold">yfinance 3個月K線已連線</span>
+                <span className="text-emerald-400 font-semibold font-mono">
+                  {scanResult.isRealData ? '🟢 即時官方真實數據源' : '🟢 盤面連線中'}
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 font-mono">
+                  {scanResult.dataSource || 'Yahoo Finance & TWSE 臺灣證券交易所'}
+                </span>
                 <span className="text-slate-400 text-[10px]">
                   · 更新時間 {lastUpdated.toLocaleTimeString('zh-TW', { hour12: false })}
                 </span>
-                {isLoading && (
-                  <span className="text-blue-400 text-[10px] flex items-center gap-1">
-                    <RefreshCw size={10} className="animate-spin" /> 背景同步中...
-                  </span>
-                )}
               </span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-slate-100 tracking-tight flex items-center gap-2">
-              <span>台股產業量價統計・五大熱門產業 & AI起漲20</span>
+              <span>量價矩陣前五大產業・使用者自訂策略選股</span>
             </h2>
             <p className="text-xs text-slate-400 mt-1 max-w-3xl leading-relaxed">
-              1. 查找台股各項產業分類及成員股；2. 統計最近五筆交易日之交易量與漲跌幅；3. 篩選出 5 個近期熱門產業；4. 利用 6 大 K 線技術指標（<strong className="text-amber-300">VCP突破、趨勢反轉向上、均線糾結帶量突破、旗形突破、杯柄突破、W底出量突破</strong>）精準推算 20 檔即將上漲黑馬股！
+              1. 從最近五筆全產業量價矩陣中找出熱門產業板塊 → 2. 撈取熱門產業全股票真實 K 線 → 3. 依照使用者自訂回測策略找到標示買進或持有的股票 → 4. 查找這些股票的 ROE、ROA、毛利率 → 5. 判定企業生命週期中創立期、成長期、成熟期、衰退或轉型期！
             </p>
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto">
             <button
-              onClick={handleTriggerAiScan}
+              onClick={handleTriggerStrategyScan}
               disabled={isScanning}
               className="flex-1 sm:flex-initial px-5 py-2.5 bg-linear-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 transition-all cursor-pointer group active:scale-95"
             >
               {isScanning ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>AI Agent 正在分析最近五筆量價與K線...</span>
+                  <span>正在以自訂策略篩選前五大產業股票...</span>
                 </>
               ) : (
                 <>
                   <Play size={15} className="fill-white" />
-                  <span>🧠 重新統計最近五筆量價 & 掃描20檔起漲股</span>
+                  <span>🧠 重新以使用者策略篩選前五大產業</span>
                 </>
               )}
             </button>
           </div>
         </div>
 
-        {/* 掃描 4 步驟擬真實時進度條 */}
+        {/* 5 步驟篩選實時進度條 */}
         {isScanning && (
           <div className="mt-4 pt-3 border-t border-slate-800/80">
             <div className="flex items-center justify-between text-xs text-slate-300 font-mono mb-1.5">
               <span>
-                {scanStep === 1 && '步驟 1/4: 查找台股全產業分類並彙整統計各產業最近五筆交易日之交易量與漲跌幅...'}
-                {scanStep === 2 && '步驟 2/4: 依照最近五筆資金集中度與複合動能，運算出台股 5 大近期熱門產業...'}
-                {scanStep === 3 && '步驟 3/4: 透過 yfinance 採集 5 大熱門產業 3 個月 K 線，利用 6 大技術指標模型深入幾何形態辨識...'}
-                {scanStep === 4 && '步驟 4/4: 精準過濾出 20 檔多頭結構確立、即將放量上漲之熱門個股並給予專業價格推估！'}
+                {scanStep === 1 && '步驟 1/4: 從最近五筆全產業量價矩陣中精確計算出前 5 大熱門產業板塊...'}
+                {scanStep === 2 && '步驟 2/4: 撈取前 5 大熱門產業中所有成分股票的真實 K 線並計算完整技術指標...'}
+                {scanStep === 3 && '步驟 3/4: 依照使用者自訂策略條件執行回測，篩選出標示買進 (BUY) 或持有 (HOLD) 的股票...'}
+                {scanStep === 4 && '步驟 4/4: 查找標示買進/持有標的之 ROE、ROA、毛利率，並判斷企業所處生命週期階段！'}
               </span>
               <span className="font-bold text-blue-400">{scanProgress}%</span>
             </div>
@@ -292,36 +319,36 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
         {/* 2 大主功能分頁切換列 */}
         <div className="mt-4 pt-3 border-t border-slate-800 flex items-center gap-2 flex-wrap">
           <button
-            onClick={() => setActiveMainTab('hotBreakout')}
+            onClick={() => setActiveMainTab('strategyScreen')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-              activeMainTab === 'hotBreakout'
+              activeMainTab === 'strategyScreen'
                 ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 ring-1 ring-blue-400'
                 : 'bg-slate-950/80 text-slate-400 hover:text-white border border-slate-800'
             }`}
           >
-            <Flame size={14} className={activeMainTab === 'hotBreakout' ? 'text-amber-300' : 'text-amber-400'} />
-            <span>🔥 五大熱門產業 & AI起漲20</span>
+            <Flame size={14} className={activeMainTab === 'strategyScreen' ? 'text-amber-300' : 'text-amber-400'} />
+            <span>🔥 五大動能產業 · 自訂策略選股 & 近3個月K線圖</span>
           </button>
           <button
-            onClick={() => setActiveMainTab('recent5Stats')}
+            onClick={() => setActiveMainTab('heatmap')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-              activeMainTab === 'recent5Stats'
+              activeMainTab === 'heatmap'
                 ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 ring-1 ring-blue-400'
                 : 'bg-slate-950/80 text-slate-400 hover:text-white border border-slate-800'
             }`}
           >
-            <Calendar size={14} className={activeMainTab === 'recent5Stats' ? 'text-blue-300' : 'text-blue-400'} />
-            <span>📊 最近五筆全產業量價矩陣</span>
+            <Layers size={14} className={activeMainTab === 'heatmap' ? 'text-rose-400' : 'text-rose-400'} />
+            <span>🗺️ 35大產業全市場熱力圖 (1954檔 · 1週交易)</span>
           </button>
         </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* 分頁 1: 🔥 五大熱門產業 & AI起漲20 (核心旗艦操盤看盤室)                     */}
+      {/* 分頁 1: 🔥 五大熱門產業 · 自訂策略選股 & 企業生命週期分析                    */}
       {/* ========================================================================= */}
-      {activeMainTab === 'hotBreakout' && (
+      {activeMainTab === 'strategyScreen' && (
         <div className="flex flex-col gap-4 w-full">
-          {/* Top 5 近期熱門產業看板 (依據最近 5 筆量價資料演算選出) */}
+          {/* CSS selector 2: Top 5 近期熱門產業看板 (依據最近 5 筆量價資料演算選出) */}
           <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2 flex-wrap border-b border-slate-800 pb-2.5">
               <div className="flex items-center gap-2">
@@ -330,13 +357,13 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                 </span>
                 <div>
                   <h3 className="text-xs sm:text-sm font-black text-white flex items-center gap-2 flex-wrap">
-                    <span>🏆 依上漲量能比重鎖定前五產業板塊・6大技術指標即將上漲20</span>
+                    <span>🏆 依最近五筆量價矩陣鎖定前 5 大熱門產業板塊</span>
                     <span className="text-[10px] px-2 py-0.2 rounded-full bg-blue-950 text-blue-300 font-mono border border-blue-800/60">
                       佔10大產業近5筆總成交量 {(scanResult.top5Sectors.reduce((sum, s) => sum + s.volumeSharePercent, 0)).toFixed(1)}%
                     </span>
                   </h3>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    自 Yahoo Finance 實際查找這 5 大板塊成分股 3 個月日 K 線圖，利用 VCP突破、趨勢反轉向上、均線糾結帶量突破、旗形突破、杯柄突破、W底出量突破 篩選出 20 檔即將放量上漲黑馬：
+                    已自動撈取前 5 大產業所有成分股真實 K 線，並套用您的自訂策略判定「買進」或「持倉續抱」標的：
                   </p>
                 </div>
               </div>
@@ -345,7 +372,7 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
               </div>
             </div>
 
-            {/* 5 大板塊卡片橫向滑動列 (依照真實蒐集到的交易資訊顯示) */}
+            {/* 5 大板塊卡片橫向列 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
               {scanResult.top5Sectors.map(sec => {
                 const isSelected = selectedSector === sec.sector;
@@ -379,30 +406,29 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                         </span>
                         <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 font-mono">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                          真實交易資訊
+                          實時全成分股
                         </span>
                       </div>
 
-                      {/* 5 筆成交量與累計漲跌幅 */}
                       <div className="flex items-center justify-between text-[11px] font-mono mt-1">
-                        <span className="text-slate-400">近5筆真實總成交</span>
+                        <span className="text-slate-400">近5筆總成交</span>
                         <span className="text-amber-300 font-bold">{sec.fiveDayTotalTurnover.toLocaleString()} 億</span>
                       </div>
                       <div className="flex items-center justify-between text-[11px] font-mono">
-                        <span className="text-slate-400">近5筆真實漲跌幅</span>
+                        <span className="text-slate-400">近5筆漲跌幅</span>
                         <span className={`font-bold ${isCumulativeUp ? 'text-rose-400' : 'text-emerald-400'}`}>
                           {isCumulativeUp ? '+' : ''}{sec.fiveDayCumulativeChange}%
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-0.5">
-                        <span>最新日成交量價</span>
+                        <span>日成交額</span>
                         <span className="text-slate-200">
                           {sec.dailyTurnoverAmount.toLocaleString()} 億 ({sec.sectorChangePercent >= 0 ? '+' : ''}{sec.sectorChangePercent}%)
                         </span>
                       </div>
                     </div>
 
-                    {/* 最近 5 筆單日成交量長條視覺圖 (帶真實日期標籤與紅漲綠跌) */}
+                    {/* 5 筆量能走勢圖 */}
                     {sec.recent5Sessions && sec.recent5Sessions.length > 0 && (
                       <div className="pt-2 border-t border-slate-800/80">
                         <div className="flex items-center justify-between text-[9px] text-slate-500 mb-1 font-mono">
@@ -430,7 +456,6 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                             );
                           })}
                         </div>
-                        {/* 5 個真實交易日日期標籤 */}
                         <div className="flex justify-between items-center text-[8px] text-slate-400 font-mono mt-1 px-0.5">
                           {sec.recent5Sessions.map((s, sIdx) => (
                             <span key={sIdx} className="truncate">{s.date}</span>
@@ -438,10 +463,6 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                         </div>
                       </div>
                     )}
-
-                    <div className="text-[10px] text-slate-400 line-clamp-2 leading-tight">
-                      {sec.mainDriver}
-                    </div>
 
                     <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/40 font-mono">
                       <span>指標股:</span>
@@ -455,420 +476,452 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
             </div>
           </div>
 
-          {/* 操盤手戰情篩選列 & 6 大技術指標快選 */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col gap-3 shadow-md">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-              {/* 左側：熱門板塊快捷 Pills */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-                <button
-                  onClick={() => setSelectedSector('ALL')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition-all cursor-pointer ${
-                    selectedSector === 'ALL'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800'
-                  }`}
-                >
-                  🌟 全部 5 大熱門產業 ({scanResult.top20Stocks?.length || 20}檔)
-                </button>
-                {scanResult.top5Sectors.map(s => (
+          {/* 查找五大動能產業中所有的股票代號與K線圖 */}
+          <TopSectorStocksKLineViewer
+            top5Sectors={scanResult.top5Sectors}
+            allSectors={scanResult.allIndustrySectors}
+            selectedSector={selectedSector}
+            onSelectSector={setSelectedSector}
+            onSelectStockForChart={onSelectStockForChart}
+            userStrategy={currentStrategy}
+            candlesMap={candlesMapState}
+            onOpenStockDetail={(stk) => setDetailStock(stk)}
+          />
+
+          {/* CSS selector 3: 自訂策略篩選前五大產業股票清單 & 企業生命週期研判 */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-5 flex flex-col gap-3.5 shadow-xl">
+            {/* 1. 當前套用之使用者自訂策略條件摘要橫幅 */}
+            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 sm:p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-start sm:items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
+                  <Sliders size={16} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs sm:text-sm font-bold text-white">
+                      當前套用回測策略：<strong className="text-blue-400">{activeStrategySummary.name}</strong>
+                    </span>
+                    <span className="text-[10px] px-2 py-0.2 rounded font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      僅篩選標示「買進」或「持倉續抱」標的
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-3 flex-wrap">
+                    <span>
+                      <strong className="text-slate-300">進場條件:</strong> {activeStrategySummary.entries.join(' + ')}
+                    </span>
+                    <span>
+                      <strong className="text-slate-300">出場條件:</strong> {activeStrategySummary.exits.join(' / ')}
+                      {activeStrategySummary.atrInitialStop > 0 && ` (停損 ${activeStrategySummary.atrInitialStop}x ATR)`}
+                      {activeStrategySummary.atrTrailingStop > 0 && ` (移動停利 ${activeStrategySummary.atrTrailingStop}x ATR)`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs font-mono self-end sm:self-auto shrink-0">
+                <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300">
+                  符合策略買進/持有: <strong className="text-emerald-400">{strategyStocks.length}</strong> 檔
+                </span>
+              </div>
+            </div>
+
+            {/* 2. 操盤手篩選控制列 (產業切換、買進/續抱切換、生命週期切換、搜尋與視圖切換) */}
+            <div className="flex flex-col gap-2.5 pt-1">
+              {/* Row 1: 產業與搜尋 */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                {/* 產業 Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
                   <button
-                    key={s.sector}
-                    onClick={() => setSelectedSector(s.sector)}
-                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition-all cursor-pointer ${
-                      selectedSector === s.sector
+                    onClick={() => setSelectedSector('ALL')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 transition-all cursor-pointer ${
+                      selectedSector === 'ALL'
                         ? 'bg-blue-600 text-white shadow-xs'
                         : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800'
                     }`}
                   >
-                    {s.sector}
+                    🌟 全部 5 大熱門產業 ({strategyStocks.length}檔)
                   </button>
-                ))}
-              </div>
-
-              {/* 右側：搜尋 + 視圖切換 (卡片 / 表格) */}
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1 sm:w-48">
-                  <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="搜尋股名/代號/6大指標..."
-                    value={searchKeyword}
-                    onChange={e => setSearchKeyword(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                  />
+                  {scanResult.top5Sectors.map(s => {
+                    const count = strategyStocks.filter(x => isSectorMatch(x.sector, s.sector)).length;
+                    const isSelected = selectedSector === s.sector || (selectedSector !== 'ALL' && isSectorMatch(selectedSector, s.sector));
+                    return (
+                      <button
+                        key={s.sector}
+                        onClick={() => setSelectedSector(isSelected ? 'ALL' : s.sector)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition-all cursor-pointer flex items-center gap-1 ${
+                          isSelected
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        <span>{s.sector}</span>
+                        <span className="text-[10px] px-1 py-0.2 rounded-full bg-slate-900/80 text-slate-400">
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
 
-                {/* 視圖切換按鈕 */}
-                <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
+                {/* 搜尋與視圖模式 */}
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1 sm:w-52">
+                    <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="搜尋股名/代號/生命週期..."
+                      value={searchKeyword}
+                      onChange={e => setSearchKeyword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
+                    <button
+                      onClick={() => setViewMode('cards')}
+                      className={`px-2.5 py-1 rounded-md font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                        viewMode === 'cards' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <LayoutGrid size={13} />
+                      <span className="hidden sm:inline">卡片</span>
+                    </button>
+                    <button
+                      onClick={() => setViewMode('table')}
+                      className={`px-2.5 py-1 rounded-md font-semibold flex items-center gap-1 transition-all cursor-pointer ${
+                        viewMode === 'table' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <TableIcon size={13} />
+                      <span className="hidden sm:inline">表格</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 2: 策略訊號切換 (買進 / 持倉) + 企業生命週期切換 (成長期 / 成熟期 / 擴張期 / 轉型期) */}
+              <div className="flex items-center justify-between gap-3 flex-wrap pt-2 border-t border-slate-800/80 text-xs">
+                {/* 策略訊號篩選 */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] text-slate-400 flex items-center gap-1 shrink-0 font-medium">
+                    <Activity size={12} className="text-blue-400" />
+                    <span>策略訊號:</span>
+                  </span>
                   <button
-                    onClick={() => setViewMode('cards')}
-                    className={`px-2.5 py-1 rounded-md font-semibold flex items-center gap-1 transition-all cursor-pointer ${
-                      viewMode === 'cards' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
+                    onClick={() => setSelectedSignal('ALL')}
+                    className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                      selectedSignal === 'ALL'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-slate-200 bg-slate-950 border border-slate-800'
                     }`}
-                    title="手機操盤卡片模式 (大字號買賣點推估)"
                   >
-                    <LayoutGrid size={13} />
-                    <span className="hidden sm:inline">卡片模式</span>
+                    全部買進/續抱 ({signalCounts.total})
                   </button>
                   <button
-                    onClick={() => setViewMode('table')}
-                    className={`px-2.5 py-1 rounded-md font-semibold flex items-center gap-1 transition-all cursor-pointer ${
-                      viewMode === 'table' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
+                    onClick={() => setSelectedSignal(prev => (prev === 'BUY' ? 'ALL' : 'BUY'))}
+                    className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                      selectedSignal === 'BUY'
+                        ? 'bg-rose-500 text-white font-bold shadow-xs'
+                        : 'text-rose-400 hover:text-white bg-slate-950 border border-rose-500/30'
                     }`}
-                    title="深度量化矩陣表格"
                   >
-                    <TableIcon size={13} />
-                    <span className="hidden sm:inline">表格模式</span>
+                    <span>🔥 買進訊號 (BUY)</span>
+                    <span className="text-[9px] px-1 py-0.1 rounded-full bg-slate-900 text-rose-300">
+                      {signalCounts.buy}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedSignal(prev => (prev === 'HOLD' ? 'ALL' : 'HOLD'))}
+                    className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                      selectedSignal === 'HOLD'
+                        ? 'bg-emerald-500 text-white font-bold shadow-xs'
+                        : 'text-emerald-400 hover:text-white bg-slate-950 border border-emerald-500/30'
+                    }`}
+                  >
+                    <span>💎 持倉續抱 (HOLD)</span>
+                    <span className="text-[9px] px-1 py-0.1 rounded-full bg-slate-900 text-emerald-300">
+                      {signalCounts.hold}
+                    </span>
+                  </button>
+                </div>
+
+                {/* 企業生命週期快選 */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] text-slate-400 flex items-center gap-1 shrink-0 font-medium">
+                    <Sparkles size={12} className="text-purple-400" />
+                    <span>企業生命週期:</span>
+                  </span>
+                  <button
+                    onClick={() => setSelectedLifecycle('ALL')}
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                      selectedLifecycle === 'ALL'
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-slate-200 bg-slate-950 border border-slate-800'
+                    }`}
+                  >
+                    全部階段
+                  </button>
+                  <button
+                    onClick={() => setSelectedLifecycle(prev => (prev === 'GROWTH' ? 'ALL' : 'GROWTH'))}
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                      selectedLifecycle === 'GROWTH'
+                        ? 'bg-emerald-500 text-slate-950 font-bold shadow-xs'
+                        : 'text-emerald-400 hover:text-white bg-slate-950 border border-emerald-500/30'
+                    }`}
+                  >
+                    <span>🚀 成長期</span>
+                    <span className="text-[9px] px-1 py-0.1 rounded-full bg-slate-900 text-emerald-300">
+                      {lifecycleCounts.GROWTH}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedLifecycle(prev => (prev === 'MATURE' ? 'ALL' : 'MATURE'))}
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                      selectedLifecycle === 'MATURE'
+                        ? 'bg-blue-500 text-white font-bold shadow-xs'
+                        : 'text-blue-400 hover:text-white bg-slate-950 border border-blue-500/30'
+                    }`}
+                  >
+                    <span>💎 成熟期</span>
+                    <span className="text-[9px] px-1 py-0.1 rounded-full bg-slate-900 text-blue-300">
+                      {lifecycleCounts.MATURE}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedLifecycle(prev => (prev === 'STARTUP' ? 'ALL' : 'STARTUP'))}
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                      selectedLifecycle === 'STARTUP'
+                        ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                        : 'text-amber-400 hover:text-white bg-slate-950 border border-amber-500/30'
+                    }`}
+                  >
+                    <span>🌱 擴張初期</span>
+                    <span className="text-[9px] px-1 py-0.1 rounded-full bg-slate-900 text-amber-300">
+                      {lifecycleCounts.STARTUP}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedLifecycle(prev => (prev === 'TRANSITION' ? 'ALL' : 'TRANSITION'))}
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                      selectedLifecycle === 'TRANSITION'
+                        ? 'bg-purple-500 text-white font-bold shadow-xs'
+                        : 'text-purple-400 hover:text-white bg-slate-950 border border-purple-500/30'
+                    }`}
+                  >
+                    <span>🔄 轉型期</span>
+                    <span className="text-[9px] px-1 py-0.1 rounded-full bg-slate-900 text-purple-300">
+                      {lifecycleCounts.TRANSITION}
+                    </span>
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* 次級篩選：6 大技術指標快選標籤 + 爆量 Toggle */}
-            <div className="flex items-center justify-between gap-2 flex-wrap pt-2.5 border-t border-slate-800/80 text-xs">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] text-slate-400 flex items-center gap-1 shrink-0 font-medium">
-                  <Filter size={12} className="text-amber-400" />
-                  <span>6大K線技術指標:</span>
-                </span>
-                <button
-                  onClick={() => setSelectedPattern('ALL')}
-                  className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                    selectedPattern === 'ALL'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200 bg-slate-950 border border-slate-800'
-                  }`}
-                >
-                  全部形態
-                </button>
-                {MANDATORY_PATTERNS.map(patternTag => {
-                  const count = patternCountMap[patternTag] || 0;
-                  const isPicked = selectedPattern === patternTag;
+            {/* 3. 股票標的展示：卡片模式 (Cards View) */}
+            {viewMode === 'cards' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 pt-2">
+                {filteredStocks.map(stock => {
+                  const isUp = stock.change >= 0;
+
                   return (
-                    <button
-                      key={patternTag}
-                      onClick={() => setSelectedPattern(prev => (prev === patternTag ? 'ALL' : patternTag))}
-                      className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 ${
-                        isPicked
-                          ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
-                          : 'text-slate-300 hover:text-white bg-slate-950 border border-slate-800'
-                      }`}
+                    <div
+                      key={stock.symbol}
+                      className="bg-slate-950/90 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-md hover:shadow-xl hover:shadow-blue-900/20 transition-all group relative overflow-hidden"
                     >
-                      <span>{patternTag}</span>
-                      {count > 0 && (
-                        <span className={`text-[9px] px-1 py-0.1 rounded-full ${
-                          isPicked ? 'bg-slate-900 text-amber-300' : 'bg-slate-800 text-slate-400'
-                        }`}>
-                          {count}
-                        </span>
-                      )}
-                    </button>
+                      {/* Top Header */}
+                      <div>
+                        <div className="flex items-center justify-between gap-1 mb-1.5 flex-wrap">
+                          <span className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                            {stock.sector}
+                          </span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border ${stock.signalBadgeClass}`}>
+                            {stock.signalLabel}
+                          </span>
+                        </div>
+
+                        <div className="flex items-start justify-between gap-2 mt-1">
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <h4 className="text-base sm:text-lg font-black text-white group-hover:text-blue-300 transition-colors">
+                                {stock.name}
+                              </h4>
+                              <span className="text-xs font-mono text-slate-400">({stock.code})</span>
+                            </div>
+                            <span className="text-[11px] text-slate-400 line-clamp-1">
+                              {stock.subCategory}
+                            </span>
+                          </div>
+
+                          <div className="text-right">
+                            <div className="text-base sm:text-lg font-black font-mono text-white">
+                              ${stock.currentPrice}
+                            </div>
+                            <div className={`text-xs font-bold font-mono flex items-center justify-end gap-0.5 ${
+                              isUp ? 'text-rose-400' : 'text-emerald-400'
+                            }`}>
+                              {isUp ? '+' : ''}{stock.change} ({isUp ? '+' : ''}{stock.changePercent}%)
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 策略持股狀態 */}
+                        <div className="mt-2.5 p-2 rounded-lg bg-slate-900/80 border border-slate-800 text-[11px] leading-snug">
+                          <div className="flex items-center justify-between font-mono">
+                            <span className="text-slate-400">
+                              {stock.signalStatus === 'BUY' ? '觸發買進' : `已持股 ${stock.holdingDays || 0} 天`}
+                            </span>
+                            <span className={`font-bold ${
+                              (stock.unrealizedReturnPct || 0) >= 0 ? 'text-rose-400' : 'text-emerald-400'
+                            }`}>
+                              未實現 {(stock.unrealizedReturnPct || 0) >= 0 ? '+' : ''}{stock.unrealizedReturnPct || 0}%
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 mt-1 border-t border-slate-800/80 font-mono">
+                            <span>勝率: <strong className="text-amber-300">{stock.winRate}%</strong></span>
+                            <span>期望值: <strong className="text-emerald-400">+{stock.expectancyPct}%</strong></span>
+                            <span>最大回撤: <strong className="text-rose-400">-{stock.maxDrawdownPct}%</strong></span>
+                          </div>
+                        </div>
+
+                        {/* 三大關鍵財務指標 (ROE · ROA · 毛利率) */}
+                        <div className="mt-2.5 pt-2 border-t border-slate-800/80">
+                          <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1.5 font-bold">
+                            <span>關鍵財務指標 (三大核心)</span>
+                            <span className="text-slate-500 font-mono">營收YoY: {stock.revenueYoY >= 0 ? '+' : ''}{stock.revenueYoY}%</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-1.5 text-center font-mono">
+                            <div className="bg-slate-900 p-1.5 rounded-lg border border-amber-500/20">
+                              <span className="text-[9px] text-amber-400 block font-semibold">ROE</span>
+                              <span className="text-xs font-black text-white">{stock.roe}%</span>
+                            </div>
+                            <div className="bg-slate-900 p-1.5 rounded-lg border border-blue-500/20">
+                              <span className="text-[9px] text-blue-400 block font-semibold">ROA</span>
+                              <span className="text-xs font-black text-white">{stock.roa}%</span>
+                            </div>
+                            <div className="bg-slate-900 p-1.5 rounded-lg border border-emerald-500/20">
+                              <span className="text-[9px] text-emerald-400 block font-semibold">毛利率</span>
+                              <span className="text-xs font-black text-white">{stock.grossMargin}%</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 企業生命週期研判標籤 */}
+                        <div className="mt-2.5 pt-2 border-t border-slate-800/80">
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="text-[10px] text-slate-400">企業生命週期：</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border ${stock.lifeCycleBadgeClass}`}>
+                              {stock.lifeCycleLabel}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 line-clamp-2 leading-tight">
+                            {stock.lifeCycleReason}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Card Footer Actions */}
+                      <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => setDetailStock(stock)}
+                          className="flex-1 py-1.5 px-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Info size={12} />
+                          <span>詳細診斷</span>
+                        </button>
+
+                        <button
+                          onClick={() => onSelectStockForChart(stock.symbol, stock.name)}
+                          className="flex-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-xs cursor-pointer active:scale-95"
+                        >
+                          <LineChart size={12} />
+                          <span>K線看盤</span>
+                        </button>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
+            )}
 
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={onlySurgeOver15x}
-                    onChange={e => setOnlySurgeOver15x(e.target.checked)}
-                    className="rounded bg-slate-950 border-slate-700 text-blue-500 focus:ring-0 cursor-pointer"
-                  />
-                  <span className="text-amber-300 font-bold">🔥 僅顯示放量 &gt; 1.5x 標的</span>
-                </label>
-
-                <span className="text-[11px] font-mono text-slate-400">
-                  符合條件: <strong className="text-white">{filteredStocks.length}</strong> / 20 檔
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Top 20 標的展示：卡片模式 (Cards View) */}
-          {viewMode === 'cards' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-              {filteredStocks.map(stock => {
-                const isTodayUp = stock.changePercent >= 0;
-                const is5DayUp = (stock.fiveDayReturn ?? 0) >= 0;
-                const isMonthUp = (stock.oneMonthReturn ?? 0) >= 0;
-
-                return (
-                  <div
-                    key={stock.symbol}
-                    className="bg-slate-900/90 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-md hover:shadow-xl hover:shadow-blue-900/20 transition-all group relative overflow-hidden"
-                  >
-                    {/* Card Top: Rank, Name, Sector, Surge Pill */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="w-5 h-5 rounded-full bg-linear-to-br from-blue-600 to-indigo-600 text-white font-mono font-black text-xs flex items-center justify-center shrink-0">
-                            {stock.rank}
-                          </span>
-                          <h4 className="text-base font-black text-white group-hover:text-blue-300 transition-colors">
-                            {stock.name}
-                          </h4>
-                          <span className="text-xs font-mono text-slate-400">({stock.code})</span>
-                        </div>
-                        <div className="text-[11px] text-slate-400 mt-0.5 truncate max-w-[190px]">
-                          {stock.sector} · {stock.subCategory}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col items-end gap-1">
-                        <span
-                          className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold whitespace-nowrap ${
-                            stock.volumeSurgeStatus === 'EXPLOSIVE'
-                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
-                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                          }`}
-                        >
-                          {stock.volumeSurgeLabel}
-                        </span>
-                        <span className="text-[10px] font-mono text-slate-400">
-                          起漲分: <strong className="text-white">{stock.breakoutScore}</strong>
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Price & Change Banner (台股紅漲綠跌規範) */}
-                    <div className="flex items-baseline justify-between p-2.5 bg-slate-950/70 rounded-xl border border-slate-800/80">
-                      <div>
-                        <div className="text-[10px] text-slate-400">現價</div>
-                        <div className="text-xl font-black font-mono text-white tracking-tight">
-                          ${stock.currentPrice}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="flex items-center justify-end gap-1 mb-0.5">
-                          {stock.fiveDayReturn != null && (
-                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                              is5DayUp ? 'bg-rose-500/15 text-rose-300' : 'bg-emerald-500/15 text-emerald-300'
-                            }`}>
-                              近5日 {is5DayUp ? '+' : ''}{stock.fiveDayReturn}%
-                            </span>
-                          )}
-                          {stock.oneMonthReturn != null && (
-                            <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                              isMonthUp ? 'bg-rose-500/15 text-rose-300' : 'bg-emerald-500/15 text-emerald-300'
-                            }`}>
-                              近1月 {isMonthUp ? '+' : ''}{stock.oneMonthReturn}%
-                            </span>
-                          )}
-                        </div>
-                        <div
-                          className={`text-sm font-black font-mono flex items-center justify-end gap-0.5 ${
-                            isTodayUp ? 'text-rose-400' : 'text-emerald-400'
-                          }`}
-                        >
-                          {isTodayUp ? <TrendingUp size={13} className="text-rose-400" /> : <TrendingDown size={13} className="text-emerald-400" />}
-                          <span>今日 {isTodayUp ? '+' : ''}{stock.changePercent}%</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* AI 6 大技術指標型態標籤 */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="px-2 py-0.5 rounded-md font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
-                          <Target size={11} className="text-amber-400" />
-                          <span>{stock.patternTag}</span>
-                        </span>
-                        <span className="text-[10px] font-mono text-emerald-400 font-semibold">
-                          {stock.breakoutStageLabel}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-300 font-medium line-clamp-2 leading-relaxed">
-                        {stock.patternName}
-                      </p>
-                    </div>
-
-                    {/* 操盤手關鍵推估價位 (買點、防守、目標價、風報比) */}
-                    <div className="grid grid-cols-2 gap-1.5 text-[11px] font-mono pt-2 border-t border-slate-800/80 bg-slate-950/40 p-2 rounded-xl">
-                      <div>
-                        <span className="text-[10px] text-slate-400 block">建議買點</span>
-                        <span className="text-blue-300 font-bold">${stock.entryZoneLow}~${stock.entryZoneHigh}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400 block">關鍵防守</span>
-                        <span className="text-amber-300 font-bold">${stock.stopLossPrice}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400 block">第1目標價</span>
-                        <span className="text-rose-400 font-bold">${stock.targetPrice1}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400 block">風報比</span>
-                        <span className="text-purple-300 font-bold">{stock.riskRewardRatio}</span>
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex items-center gap-2 pt-1">
-                      <button
-                        onClick={() => setDetailStock(stock)}
-                        className="flex-1 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 hover:text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 border border-blue-500/30 transition-colors cursor-pointer"
-                      >
-                        <Sparkles size={12} className="text-amber-400" />
-                        <span>AI 形態研報 (看3月K線)</span>
-                      </button>
-                      <button
-                        onClick={() => onSelectStockForChart(stock.symbol, stock.name)}
-                        className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition-colors cursor-pointer"
-                        title="帶入即時看盤室"
-                      >
-                        <LineChart size={14} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Top 20 標的展示：表格模式 (Matrix Table View) */}
-          {viewMode === 'table' && (
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
-              <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-700">
-                <table className="w-full text-left text-xs whitespace-nowrap border-collapse">
-                  <thead className="bg-slate-950/90 text-slate-400 font-semibold border-b border-slate-800 text-[11px] font-mono select-none">
+            {/* 表格模式 (Table View) */}
+            {viewMode === 'table' && (
+              <div className="overflow-x-auto rounded-xl border border-slate-800 mt-2">
+                <table className="w-full text-left text-xs text-slate-300 divide-y divide-slate-800">
+                  <thead className="bg-slate-950/80 text-[11px] font-bold text-slate-400 font-mono">
                     <tr>
-                      <th className="py-3 px-3.5 sticky left-0 bg-slate-950 z-20 shadow-md border-r border-slate-800 min-w-[160px]">
-                        標的 (排行)
-                      </th>
-                      <th className="py-3 px-3 text-right">現價 / 今日漲跌</th>
-                      <th className="py-3 px-3 text-right">近5筆 / 近1月漲跌</th>
-                      <th className="py-3 px-3 text-right">放量倍數</th>
-                      <th className="py-3 px-3 text-right">今日量 / 20日均量</th>
-                      <th className="py-3 px-3 text-center">6大技術指標</th>
-                      <th className="py-3 px-3 text-center">起漲階段</th>
-                      <th className="py-3 px-3 text-center">建議買進區間</th>
-                      <th className="py-3 px-3 text-center">關鍵防守價</th>
-                      <th className="py-3 px-3 text-center">第1目標價</th>
-                      <th className="py-3 px-3 text-center">風報比</th>
-                      <th className="py-3 px-3 text-center min-w-[130px]">操盤操作</th>
+                      <th className="py-2.5 px-3">股票代號/名稱</th>
+                      <th className="py-2.5 px-3">所屬熱門板塊</th>
+                      <th className="py-2.5 px-3 text-right">現價 / 漲跌</th>
+                      <th className="py-2.5 px-3 text-center">自訂策略信號</th>
+                      <th className="py-2.5 px-3 text-right">策略勝率 / 損益</th>
+                      <th className="py-2.5 px-3 text-right">ROE</th>
+                      <th className="py-2.5 px-3 text-right">ROA</th>
+                      <th className="py-2.5 px-3 text-right">毛利率</th>
+                      <th className="py-2.5 px-3 text-center">企業生命週期</th>
+                      <th className="py-2.5 px-3 text-center">操作</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/80 font-mono text-xs">
+                  <tbody className="divide-y divide-slate-800/60 font-mono bg-slate-900/40">
                     {filteredStocks.map(stock => {
-                      const isTodayUp = stock.changePercent >= 0;
-                      const is5DayUp = (stock.fiveDayReturn ?? 0) >= 0;
-                      const isMonthUp = (stock.oneMonthReturn ?? 0) >= 0;
-
+                      const isUp = stock.change >= 0;
                       return (
-                        <tr
-                          key={stock.symbol}
-                          onClick={() => setDetailStock(stock)}
-                          className="hover:bg-slate-800/50 transition-colors cursor-pointer group"
-                        >
-                          {/* 凍結首欄 */}
-                          <td className="py-3 px-3.5 sticky left-0 bg-slate-950 group-hover:bg-slate-900 z-10 shadow-md border-r border-slate-800/80 font-sans">
-                            <div className="flex items-center gap-2">
-                              <span className="w-5 h-5 rounded-full bg-slate-800 text-amber-400 font-mono font-bold text-[10px] flex items-center justify-center shrink-0">
-                                {stock.rank}
-                              </span>
-                              <div>
-                                <div className="font-extrabold text-white text-xs group-hover:text-blue-400 transition-colors flex items-center gap-1">
-                                  <span>{stock.name}</span>
-                                  <span className="text-[10px] text-slate-400 font-mono">({stock.code})</span>
-                                </div>
-                                <div className="text-[10px] text-slate-400 truncate max-w-[120px]">
-                                  {stock.sector}
-                                </div>
-                              </div>
+                        <tr key={stock.symbol} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-2.5 px-3 font-sans">
+                            <div className="font-bold text-white flex items-center gap-1.5">
+                              <span>{stock.name}</span>
+                              <span className="text-[10px] font-mono text-slate-400">({stock.code})</span>
                             </div>
+                            <div className="text-[10px] text-slate-400 truncate max-w-[120px]">{stock.subCategory}</div>
                           </td>
-
-                          {/* 現價 / 今日漲跌 (紅漲綠跌) */}
-                          <td className="py-3 px-3 text-right">
-                            <div className="font-bold text-white">${stock.currentPrice}</div>
-                            <div className="flex items-center justify-end gap-1 text-[10px] font-semibold">
-                              <span className={isTodayUp ? 'text-rose-400' : 'text-emerald-400'}>
-                                {isTodayUp ? '+' : ''}{stock.changePercent}%
-                              </span>
-                            </div>
-                          </td>
-
-                          {/* 近5筆 / 近1月漲跌 */}
-                          <td className="py-3 px-3 text-right">
-                            <div className={`text-[11px] font-bold ${is5DayUp ? 'text-rose-400' : 'text-emerald-400'}`}>
-                              5筆 {is5DayUp ? '+' : ''}{stock.fiveDayReturn}%
-                            </div>
-                            <div className={`text-[10px] ${isMonthUp ? 'text-rose-400/80' : 'text-emerald-400/80'}`}>
-                              月 {isMonthUp ? '+' : ''}{stock.oneMonthReturn}%
-                            </div>
-                          </td>
-
-                          {/* 放量倍數 */}
-                          <td className="py-3 px-3 text-right">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                stock.volumeSurgeStatus === 'EXPLOSIVE'
-                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                              }`}
-                            >
-                              {stock.volumeSurgeLabel}
+                          <td className="py-2.5 px-3 text-slate-300 font-sans">
+                            <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 text-[10px]">
+                              {stock.sector}
                             </span>
                           </td>
-
-                          {/* 今日量 / 20日均量 */}
-                          <td className="py-3 px-3 text-right text-slate-300">
-                            <div>{(stock.volumeToday / 1000).toFixed(1)}k 張</div>
-                            <div className="text-[10px] text-slate-500">均 {(stock.volumeMa20 / 1000).toFixed(1)}k</div>
+                          <td className="py-2.5 px-3 text-right font-bold">
+                            <div className="text-white">${stock.currentPrice}</div>
+                            <div className={`text-[10px] ${isUp ? 'text-rose-400' : 'text-emerald-400'}`}>
+                              {isUp ? '+' : ''}{stock.changePercent}%
+                            </div>
                           </td>
-
-                          {/* 6 大技術指標 */}
-                          <td className="py-3 px-3 text-center font-sans">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                              {stock.patternTag}
+                          <td className="py-2.5 px-3 text-center font-sans">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${stock.signalBadgeClass}`}>
+                              {stock.signalLabel}
                             </span>
                           </td>
-
-                          {/* 起漲階段 */}
-                          <td className="py-3 px-3 text-center font-sans">
-                            <span className="text-[11px] text-emerald-400 font-semibold">
-                              {stock.breakoutStageLabel}
+                          <td className="py-2.5 px-3 text-right">
+                            <div className="text-amber-300 font-bold">{stock.winRate}%</div>
+                            <div className={`text-[10px] ${(stock.unrealizedReturnPct || 0) >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                              未實現 {(stock.unrealizedReturnPct || 0) >= 0 ? '+' : ''}{stock.unrealizedReturnPct || 0}%
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-bold text-amber-300">
+                            {stock.roe}%
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-bold text-blue-400">
+                            {stock.roa}%
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-bold text-emerald-400">
+                            {stock.grossMargin}%
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-sans">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${stock.lifeCycleBadgeClass}`}>
+                              {stock.lifeCycleLabel}
                             </span>
                           </td>
-
-                          {/* 買點區間 */}
-                          <td className="py-3 px-3 text-center text-blue-300 font-bold">
-                            ${stock.entryZoneLow} ~ ${stock.entryZoneHigh}
-                          </td>
-
-                          {/* 防守價 */}
-                          <td className="py-3 px-3 text-center text-amber-300 font-bold">
-                            ${stock.stopLossPrice}
-                          </td>
-
-                          {/* 目標價 */}
-                          <td className="py-3 px-3 text-center text-rose-400 font-bold">
-                            ${stock.targetPrice1} (+{stock.upsidePotentialPercent}%)
-                          </td>
-
-                          {/* 風報比 */}
-                          <td className="py-3 px-3 text-center text-purple-300 font-bold">
-                            {stock.riskRewardRatio}
-                          </td>
-
-                          {/* 操盤操作 */}
-                          <td className="py-3 px-3 text-center" onClick={e => e.stopPropagation()}>
+                          <td className="py-2.5 px-3 text-center font-sans">
                             <div className="flex items-center justify-center gap-1.5">
                               <button
                                 onClick={() => setDetailStock(stock)}
-                                className="px-2 py-1 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 hover:text-white rounded text-[11px] font-semibold flex items-center gap-1 transition-colors border border-blue-500/30 cursor-pointer"
-                                title="開啟 3 個月 K 線形態研報"
+                                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] rounded cursor-pointer"
                               >
-                                <Sparkles size={11} className="text-amber-400" />
-                                <span>形態研報</span>
+                                診斷
                               </button>
                               <button
                                 onClick={() => onSelectStockForChart(stock.symbol, stock.name)}
-                                className="p-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded transition-colors border border-slate-700 cursor-pointer"
-                                title="帶入即時 K 線圖"
+                                className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] rounded cursor-pointer shadow-xs"
                               >
-                                <LineChart size={13} />
+                                看盤
                               </button>
                             </div>
                           </td>
@@ -878,468 +931,33 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
                   </tbody>
                 </table>
               </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* 分頁 2: 📊 最近五筆全產業量價矩陣 (統計最近五筆交易量與漲跌幅)                 */}
-      {/* ========================================================================= */}
-      {activeMainTab === 'recent5Stats' && (
-        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 shadow-xl">
-          <div className="flex items-center justify-between gap-3 flex-wrap border-b border-slate-800 pb-3">
-            <div>
-              <h3 className="text-sm sm:text-base font-black text-white flex items-center gap-2">
-                <Calendar size={16} className="text-blue-400" />
-                <span>台股全產業最近五筆交易日量價統計矩陣 (5-Session Industry Volume & Return Matrix)</span>
-              </h3>
-              <p className="text-xs text-slate-400 mt-1">
-                統計台股每個產業板塊最近 5 個交易日之各日成交金額（億元）、單日漲跌幅、5筆累計總交易量、累積漲跌幅與市場量能佔比：
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono text-slate-400">
-                最近5筆10大產業總成交: <strong className="text-amber-300">{scanResult.fiveDayMarketTurnoverTotal?.toLocaleString() || '16,800'} 億元</strong>
-              </span>
-            </div>
-          </div>
-
-          {/* 大盤加權指數基準比較條 (從 Yahoo Finance 提取真實日K走勢) */}
-          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono font-bold border border-blue-500/30 flex items-center gap-1">
-                <TrendingUp size={12} className="text-blue-400" />
-                大盤基準指標
-              </span>
-              <span className="font-bold text-white text-sm">
-                加權指數 (^TWII)
-              </span>
-              <span className="font-mono text-slate-300">
-                最新點位: <strong className="text-white">{scanResult.marketBenchmark?.currentClose?.toLocaleString() || '23,450'}</strong>
-              </span>
-              <span className={`font-mono font-bold ${(scanResult.marketBenchmark?.changePercent ?? 0) >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                最新當日: {(scanResult.marketBenchmark?.changePercent ?? 0) >= 0 ? '+' : ''}{scanResult.marketBenchmark?.changePercent ?? 0}%
-              </span>
-              <span className={`font-mono font-bold ${(scanResult.marketBenchmark?.fiveDayCumulativeChange ?? 0) >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                近5筆累計: {(scanResult.marketBenchmark?.fiveDayCumulativeChange ?? 0) >= 0 ? '+' : ''}{scanResult.marketBenchmark?.fiveDayCumulativeChange ?? 0}%
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 text-[11px] font-mono text-slate-400">
-              <span className="shrink-0">大盤近5日真實走勢:</span>
-              <div className="flex items-center gap-1 overflow-x-auto">
-                {scanResult.marketBenchmark?.recent5Sessions?.map((bs, bIdx) => {
-                  const isUp = bs.changePercent >= 0;
-                  return (
-                    <span
-                      key={bIdx}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${
-                        isUp ? 'bg-rose-950/60 text-rose-300 border border-rose-800/40' : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/40'
-                      }`}
-                      title={`${bs.date}: ${isUp ? '+' : ''}${bs.changePercent}%`}
-                    >
-                      {bs.date} ({isUp ? '+' : ''}{bs.changePercent}%)
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* 量能比重排名控制切換器 */}
-          <div className="flex items-center justify-between gap-3 flex-wrap bg-slate-950/70 p-2.5 rounded-xl border border-slate-800 text-xs">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-slate-400 font-medium flex items-center gap-1">
-                <SlidersHorizontal size={13} className="text-amber-400" />
-                <span>產業排名基準:</span>
-              </span>
-              <button
-                onClick={() => setSectorSortBy('upwardVolume')}
-                className={`px-3 py-1 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  sectorSortBy === 'upwardVolume'
-                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-900/30 ring-1 ring-amber-300'
-                    : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                }`}
-              >
-                <TrendingUp size={12} className={sectorSortBy === 'upwardVolume' ? 'text-slate-950' : 'text-rose-400'} />
-                <span>依上漲量能比重排名 (推薦·前5大選股來源)</span>
-              </button>
-              <button
-                onClick={() => setSectorSortBy('volumeShare')}
-                className={`px-3 py-1 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  sectorSortBy === 'volumeShare'
-                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-900/30 ring-1 ring-amber-300'
-                    : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                }`}
-              >
-                <Flame size={12} className={sectorSortBy === 'volumeShare' ? 'text-slate-950' : 'text-amber-400'} />
-                <span>依大盤量能佔比排名</span>
-              </button>
-              <button
-                onClick={() => setSectorSortBy('turnover')}
-                className={`px-3 py-1 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  sectorSortBy === 'turnover'
-                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-900/30 ring-1 ring-amber-300'
-                    : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                }`}
-              >
-                <span>依近5筆總成交額排名</span>
-              </button>
-              <button
-                onClick={() => setSectorSortBy('cumChange')}
-                className={`px-3 py-1 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  sectorSortBy === 'cumChange'
-                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-900/30 ring-1 ring-amber-300'
-                    : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
-                }`}
-              >
-                <span>依5日累計漲跌排名</span>
-              </button>
-            </div>
-            <div className="text-[11px] text-slate-400 font-mono">
-              當前依據：
-              <strong className="text-amber-300">
-                {sectorSortBy === 'upwardVolume'
-                  ? '⚡ 上漲量能比重由高至低 (買盤吸籌最強·鎖定前5大板塊查找成分股日K)'
-                  : (sectorSortBy === 'volumeShare' ? '🔥 大盤量能佔比由高至低' : '💰 總成交金額排名')}
-              </strong>
-            </div>
-          </div>
-
-          {/* 前五大上漲量能板塊與 6 大技術指標起漲說明導引橫幅 */}
-          <div className="bg-linear-to-r from-amber-950/40 via-blue-950/30 to-slate-900 border border-amber-500/30 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
-            <div className="flex items-center gap-2.5">
-              <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
-                <Flame size={16} />
-              </div>
-              <div>
-                <h4 className="text-xs sm:text-sm font-extrabold text-white flex items-center gap-1.5 flex-wrap">
-                  <span>依照上漲量能比重排名・鎖定前五產業板塊成分股日K線圖・6大技術指標即將上漲個股</span>
-                  <span className="text-[10px] px-2 py-0.2 rounded font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                    Yahoo Finance 真實日K
-                  </span>
-                </h4>
-                <p className="text-[11px] text-slate-300 mt-0.5 leading-relaxed">
-                  系統已鎖定買盤量能比重最高的 Top 5 產業板塊，並透過 3 個月真實日 K 線運用 6 大技術指標（VCP突破、趨勢反轉向上、均線糾結帶量突破、旗形突破、杯柄突破、W底出量突破）為您即時篩選出 20 檔即將放量起漲之黑馬個股！
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setActiveMainTab('hotBreakout')}
-              className="px-3.5 py-1.5 rounded-xl bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shrink-0 shadow-lg shadow-blue-900/30 transition-all cursor-pointer ring-1 ring-blue-400"
-            >
-              <Sparkles size={13} className="text-amber-300" />
-              <span>看前5大板塊起漲20</span>
-              <ArrowUpRight size={13} />
-            </button>
-          </div>
-
-          <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-700 rounded-xl border border-slate-800">
-            <table className="w-full text-left text-xs whitespace-nowrap border-collapse">
-              <thead className="bg-slate-950 text-slate-400 font-mono text-[11px] border-b border-slate-800 select-none">
-                <tr>
-                  {/* CSS selector 2: th:nth-of-type(1) */}
-                  <th className="py-3 px-3.5 sticky left-0 bg-slate-950 z-20 shadow-md border-r border-slate-800 min-w-[210px]">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <div>
-                        <div className="text-white font-black flex items-center gap-1">
-                          <TrendingUp size={12} className="text-amber-400" />
-                          <span>產業板塊 (量能排名)</span>
-                        </div>
-                        <div className="text-[10px] text-amber-400/90 font-normal">
-                          {sectorSortBy === 'upwardVolume' ? '⚡ 依上漲量能比重排序 (前5大鎖定)' : '成分股與量能名次'}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => setActiveMainTab('hotBreakout')}
-                        className="px-2 py-0.5 rounded text-[10px] bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center gap-0.5 shadow cursor-pointer transition-all"
-                        title="前往查看前5大板塊之20檔即將上漲股"
-                      >
-                        <span>看起漲20</span>
-                        <ArrowUpRight size={10} />
-                      </button>
-                    </div>
-                  </th>
-                  <th className="py-3 px-3 text-center">族群分類</th>
-                  <th
-                    onClick={() => setSectorSortBy('turnover')}
-                    className={`py-3 px-3 text-right cursor-pointer transition-colors ${
-                      sectorSortBy === 'turnover' ? 'text-amber-300 bg-amber-950/30 font-bold' : 'hover:text-white'
-                    }`}
-                    title="點擊依近5筆總成交額排序"
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      <span>近5筆總成交額</span>
-                      {sectorSortBy === 'turnover' && <span className="text-amber-400 font-bold">▼</span>}
-                    </div>
-                  </th>
-                  <th
-                    onClick={() => setSectorSortBy('volumeShare')}
-                    className={`py-3 px-3 text-right cursor-pointer transition-colors border-x border-slate-800 ${
-                      sectorSortBy === 'volumeShare' ? 'text-amber-300 bg-amber-950/40 font-black ring-1 ring-amber-500/40' : 'hover:text-white'
-                    }`}
-                    title="點擊依大盤量能佔比排序"
-                  >
-                    <div className="flex items-center justify-end gap-1 font-bold">
-                      <Flame size={11} className="text-amber-400" />
-                      <span>大盤量能佔比</span>
-                      {sectorSortBy === 'volumeShare' && <span className="text-amber-400 font-bold">▼</span>}
-                    </div>
-                  </th>
-                  <th
-                    onClick={() => setSectorSortBy('cumChange')}
-                    className={`py-3 px-3 text-right cursor-pointer transition-colors ${
-                      sectorSortBy === 'cumChange' ? 'text-amber-300 bg-amber-950/30 font-bold' : 'hover:text-white'
-                    }`}
-                    title="點擊依近5筆累計漲跌排序"
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      <span>近5筆累計漲跌</span>
-                      {sectorSortBy === 'cumChange' && <span className="text-amber-400 font-bold">▼</span>}
-                    </div>
-                  </th>
-                  <th className="py-3 px-3 text-center min-w-[130px] bg-blue-950/30 border-x border-blue-900/40">
-                    <div className="text-blue-300 font-bold">與大盤比較 (Alpha)</div>
-                    <div className="text-[10px] text-slate-400 font-normal">相對加權指數強弱</div>
-                  </th>
-                  {/* CSS selector 3: th:nth-of-type(7) */}
-                  <th
-                    onClick={() => setSectorSortBy('upwardVolume')}
-                    className={`py-3 px-3 text-center min-w-[130px] cursor-pointer transition-colors border-r border-amber-900/30 ${
-                      sectorSortBy === 'upwardVolume'
-                        ? 'text-amber-300 bg-amber-950/60 font-black ring-2 ring-amber-400'
-                        : 'bg-amber-950/20 hover:text-white'
-                    }`}
-                    title="點擊依上漲量能比重排序 (買盤量能佔比，前5大板塊選股核心)"
-                  >
-                    <div className="flex items-center justify-center gap-1 font-bold">
-                      <TrendingUp size={12} className="text-amber-400" />
-                      <span className="text-amber-300 font-extrabold text-xs">上漲量能比重</span>
-                      {sectorSortBy === 'upwardVolume' && <span className="text-amber-400 font-bold">▼</span>}
-                    </div>
-                    <div className="text-[10px] text-amber-400/90 font-medium">
-                      {sectorSortBy === 'upwardVolume' ? '🏆 前五大選股核心' : '買盤吸籌量比'}
-                    </div>
-                  </th>
-                  {scanResult.top5Sectors[0]?.recent5Sessions?.map((s, idx) => (
-                    <th key={idx} className="py-3 px-3 text-center min-w-[85px]">
-                      <div>{s.sessionLabel}</div>
-                      <div className="text-[10px] text-slate-500 font-normal">{s.date}</div>
-                    </th>
-                  ))}
-                  <th className="py-3 px-3 text-center min-w-[110px]">
-                    <div>上漲量能評分</div>
-                    <div className="text-[10px] text-amber-400 font-normal">熱門評級 (0-100)</div>
-                  </th>
-                  <th className="py-3 px-3 text-center">熱門狀態</th>
-                  <th className="py-3 px-3 text-center">操盤聯動</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/80 font-mono text-xs">
-                {sortedIndustrySectors.map((sec, idx) => {
-                  const is5DayUp = sec.fiveDayCumulativeChange >= 0;
-                  return (
-                    <tr
-                      key={sec.sectorId}
-                      className={`hover:bg-slate-800/50 transition-colors ${
-                        idx < 5 ? 'bg-blue-950/20' : ''
-                      }`}
-                    >
-                      {/* 凍結首欄 (CSS selector 1..10: td:nth-of-type(1)) */}
-                      <td className="py-3 px-3.5 sticky left-0 bg-slate-950 group-hover:bg-slate-900 z-10 shadow-md border-r border-slate-800 font-sans">
-                        <div className="flex items-center gap-2.5">
-                          {/* 依當前量能比重嚴格排序之序號徽章 */}
-                          <span
-                            className={`w-6 h-6 rounded-full font-mono font-black text-[11px] flex items-center justify-center shrink-0 border ${
-                              idx === 0
-                                ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md shadow-amber-500/20 ring-2 ring-amber-400/50'
-                                : (idx === 1
-                                    ? 'bg-slate-200 text-slate-900 border-slate-100 ring-1 ring-slate-300/50'
-                                    : (idx === 2
-                                        ? 'bg-amber-700 text-amber-100 border-amber-600'
-                                        : (idx < 5 ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' : 'bg-slate-800 text-slate-400 border-slate-700')))
-                            }`}
-                          >
-                            {idx + 1}
-                          </span>
-                          <div>
-                            <div className="font-extrabold text-white text-xs flex items-center gap-1.5 flex-wrap">
-                              <span>{sec.sectorName}</span>
-                              {idx < 5 && (
-                                <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold font-mono ${
-                                  sectorSortBy === 'upwardVolume'
-                                    ? 'bg-amber-500/25 text-amber-300 border border-amber-500/50 shadow-xs'
-                                    : 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
-                                }`}>
-                                  {sectorSortBy === 'upwardVolume' ? `No.${idx + 1} 上漲量能前5大` : `No.${idx + 1} 量能榜`}
-                                </span>
-                              )}
-                              <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.2 rounded bg-emerald-950/70 text-emerald-400 border border-emerald-500/30 font-mono">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                                真實日K
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 mt-1 flex-wrap">
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                上漲量比: <strong className="text-amber-300 font-bold">{sec.upwardVolumeRatio ?? 0}%</strong>
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                大盤佔比: <strong className="text-blue-300">{sec.fiveDayVolumeSharePercent}%</strong>
-                              </span>
-                              <span
-                                className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                                  (sec.relativeStrengthVsTaiex ?? 0) >= 0
-                                    ? 'bg-rose-950/70 text-rose-300 border border-rose-500/40'
-                                    : 'bg-emerald-950/70 text-emerald-300 border border-emerald-500/40'
-                                }`}
-                              >
-                                Alpha {(sec.relativeStrengthVsTaiex ?? 0) >= 0 ? '+' : ''}{sec.relativeStrengthVsTaiex ?? 0}%
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* 族群分類 */}
-                      <td className="py-3 px-3 text-center font-sans">
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                          {sec.categoryGroup}
-                        </span>
-                      </td>
-
-                      {/* 近 5 筆總成交額 */}
-                      <td className="py-3 px-3 text-right font-bold text-amber-300">
-                        {sec.fiveDayTotalTurnover.toLocaleString()} 億
-                      </td>
-
-                      {/* 大盤量能佔比 (依照量能比重排名之關鍵欄位) */}
-                      <td className={`py-3 px-3 text-right font-mono ${
-                        sectorSortBy === 'volumeShare' ? 'bg-amber-500/15 border-x border-amber-500/30 font-black' : ''
-                      }`}>
-                        <span className="font-black text-xs text-amber-300">{sec.fiveDayVolumeSharePercent}%</span>
-                        <div className="text-[9px] text-slate-400">
-                          佔全市場5日
-                        </div>
-                      </td>
-
-                      {/* 近 5 筆累計漲跌 (紅漲綠跌) */}
-                      <td className="py-3 px-3 text-right">
-                        <span className={`font-black text-xs ${is5DayUp ? 'text-rose-400' : 'text-emerald-400'}`}>
-                          {is5DayUp ? '+' : ''}{sec.fiveDayCumulativeChange}%
-                        </span>
-                      </td>
-
-                      {/* 與大盤指數比較 (Alpha 超額報酬) */}
-                      <td className="py-3 px-3 text-center bg-blue-950/10 border-x border-blue-900/20">
-                        <div className={`font-mono font-bold text-xs ${
-                          (sec.relativeStrengthVsTaiex ?? 0) >= 0 ? 'text-rose-400' : 'text-emerald-400'
-                        }`}>
-                          {(sec.relativeStrengthVsTaiex ?? 0) >= 0 ? '+' : ''}{sec.relativeStrengthVsTaiex ?? 0}%
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5 font-sans truncate max-w-[130px]" title={sec.taiexComparisonLabel}>
-                          {sec.taiexComparisonLabel || '與大盤持平'}
-                        </div>
-                      </td>
-
-                      {/* 上漲量能比重 (CSS selector 11..20: td:nth-of-type(7)) */}
-                      <td className={`py-3 px-3 text-center border-r border-amber-900/20 ${
-                        sectorSortBy === 'upwardVolume'
-                          ? 'bg-amber-500/20 ring-1 ring-amber-400/50 shadow-inner'
-                          : 'bg-amber-950/10'
-                      }`}>
-                        <div className="font-mono font-bold text-xs text-amber-300 flex items-center justify-center gap-1">
-                          <span className="text-amber-300 font-black text-xs">{sec.upwardVolumeRatio ?? 0}%</span>
-                          <span className="text-[10px] text-slate-400 font-normal">買盤比</span>
-                        </div>
-                        <div className="w-20 mx-auto bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
-                          <div
-                            className="bg-amber-400 h-full rounded-full transition-all"
-                            style={{ width: `${Math.min(100, sec.upwardVolumeRatio ?? 0)}%` }}
-                          />
-                        </div>
-                        <div className="text-[9px] text-slate-400 font-mono mt-0.5">
-                          {sec.upwardVolumeAmount?.toLocaleString() ?? 0} 億上漲量
-                        </div>
-                      </td>
-
-                      {/* 最近 5 筆逐日量價 (T-4 到 今日T) */}
-                      {sec.recent5Sessions?.map((s, sIdx) => {
-                        const isDayUp = s.changePercent >= 0;
-                        return (
-                          <td key={sIdx} className="py-3 px-3 text-center bg-slate-950/40 border-l border-slate-800/40">
-                            <div className="text-slate-300 font-semibold">{s.turnoverAmount.toLocaleString()}億</div>
-                            <div className={`text-[10px] font-bold ${isDayUp ? 'text-rose-400' : 'text-emerald-400'}`}>
-                              {isDayUp ? '+' : ''}{s.changePercent}%
-                            </div>
-                          </td>
-                        );
-                      })}
-
-                      {/* 上漲量能熱門評分 */}
-                      <td className="py-3 px-3 text-center font-bold text-white">
-                        <div className="inline-flex flex-col items-center">
-                          <span className={`px-2 py-0.5 rounded-md text-xs font-mono font-black border ${
-                            sec.heatScore >= 85
-                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
-                              : (sec.heatScore >= 70 ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' : 'bg-slate-800 text-slate-300 border-slate-700')
-                          }`}>
-                            {sec.heatScore}分
-                          </span>
-                          <span className="text-[9px] text-slate-400 font-sans mt-0.5">
-                            {sec.heatScore >= 85 ? '🔥 爆量強攻' : (sec.heatScore >= 70 ? '🚀 買盤增溫' : '⏳ 量平整理')}
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* 熱門狀態 */}
-                      <td className="py-3 px-3 text-center font-sans">
-                        {sec.isTop5Hot ? (
-                          <span className="text-[11px] font-bold text-amber-400 flex items-center justify-center gap-1">
-                            <Flame size={12} />
-                            <span>近期5大熱門</span>
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-slate-500 font-mono">常規追蹤</span>
-                        )}
-                      </td>
-
-                      {/* 操盤操作 */}
-                      <td className="py-3 px-3 text-center font-sans">
-                        <button
-                          onClick={() => {
-                            setSelectedSector(sec.sectorName);
-                            setActiveMainTab('hotBreakout');
-                          }}
-                          className={`px-2.5 py-1 rounded text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 mx-auto border ${
-                            idx < 5 && sectorSortBy === 'upwardVolume'
-                              ? 'bg-amber-500/20 hover:bg-amber-500/35 text-amber-300 hover:text-white border-amber-500/40 shadow-xs'
-                              : 'bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 hover:text-white border-blue-500/30'
-                          }`}
-                        >
-                          <Flame size={12} className={idx < 5 ? 'text-amber-400' : 'text-blue-400'} />
-                          <span>查看起漲股</span>
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            )}
           </div>
         </div>
       )}
 
-
-      {/* 3 個月 K 線圖形態研報彈窗 (AiVolumeBreakoutModal) */}
-      {detailStock && (
-        <AiVolumeBreakoutModal
-          stock={detailStock}
-          isOpen={!!detailStock}
-          onClose={() => setDetailStock(null)}
-          onSelectStockForChart={onSelectStockForChart}
+      {/* ========================================================================= */}
+      {/* 分頁 2: 🗺️ 40 大產業實際熱力圖 (Heatmap)                                    */}
+      {/* ========================================================================= */}
+      {activeMainTab === 'heatmap' && (
+        <IndustryHeatmap
+          sectors={scanResult.allIndustrySectors}
+          selectedSector={selectedSector}
+          onSelectSector={(secName) => {
+            setSelectedSector(secName);
+            setActiveMainTab('strategyScreen');
+          }}
+          onViewStockKLine={onSelectStockForChart}
         />
       )}
+
+      {/* 詳細診斷彈窗 */}
+      <StrategyStockDetailModal
+        stock={detailStock}
+        isOpen={!!detailStock}
+        onClose={() => setDetailStock(null)}
+        onSelectStockForChart={onSelectStockForChart}
+      />
     </div>
   );
 };

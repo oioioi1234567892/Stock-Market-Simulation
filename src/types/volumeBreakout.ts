@@ -35,9 +35,10 @@ export interface DailySessionData {
 export interface IndustrySectorInfo {
   sectorId: string;
   sectorName: string;
-  categoryGroup: '電子科技' | '傳產製造' | '生技醫療' | '金融內需';
+  categoryGroup: '電子科技' | '傳產製造' | '生技醫療' | '金融內需' | '指數商品' | string;
   subDescription: string;
   stocksCount: number;
+  momentumScore?: number;
 
   // 最近五筆交易日之量價明細與加總統計
   recent5Sessions: DailySessionData[];
@@ -75,6 +76,23 @@ export interface IndustrySectorInfo {
   }[];
 }
 
+export interface SectorConstituentStock {
+  code: string;
+  name: string;
+  symbol: string;
+  market?: 'TWSE' | 'TPEx';
+  industry?: string;
+  close: number;
+  change: number;
+  changePercent: number;
+  weeklyChangePercent?: number;
+  monthlyChangePercent?: number;
+  volumeShares?: number;
+  turnoverYi?: number;
+  marketCap?: number;
+  rsi6?: number;
+}
+
 export interface TopSectorVolumeInfo {
   sector: string;
   rank: number;
@@ -90,6 +108,7 @@ export interface TopSectorVolumeInfo {
   stocksCount: number;
   representativeStocks: string[];     // 代表性龍頭股 (e.g. ['2330 台積電', '3711 日月光投控'])
   recent5Sessions: DailySessionData[];// 最近五筆交易量價走勢
+  allConstituentStocks?: SectorConstituentStock[]; // 該產業全市場真實所有成分股 (包含所有上市櫃股票)
 }
 
 export interface BreakoutStockCandidate {
@@ -160,6 +179,48 @@ export interface MarketBenchmarkInfo {
   recent5Sessions: DailySessionData[];  // 最近 5 個交易日指數點位與漲跌幅
 }
 
+export type CorporateLifeCyclePhase = 'GROWTH' | 'MATURE' | 'STARTUP' | 'TRANSITION' | 'DECLINE';
+
+export interface StrategyFilteredStock {
+  code: string;
+  name: string;
+  symbol: string;
+  sector: string;
+  subCategory: string;
+  currentPrice: number;
+  change: number;
+  changePercent: number;
+  // 使用者自訂回測策略判定結果
+  signalStatus: 'BUY' | 'HOLD';
+  signalLabel: string;
+  signalDesc: string;
+  signalBadgeClass: string;
+  entryDate?: string;
+  entryPrice?: number;
+  holdingDays?: number;
+  unrealizedReturnPct?: number;
+  winRate: number;
+  expectancyPct: number;
+  maxDrawdownPct: number;
+  totalTrades: number;
+  profitFactor: number;
+  // 查找三大關鍵財務指標
+  roe: number;          // 股東權益報酬率 (%)
+  roa: number;          // 資產報酬率 (%)
+  grossMargin: number;  // 毛利率 (%)
+  operatingMargin: number; // 營業利益率 (%)
+  revenueYoY: number;   // 營收年增率 (%)
+  debtRatio: number;    // 負債比率 (%)
+  eps: number;          // 近四季每股盈餘
+  // 依照三大指標判定之企業生命週期
+  lifeCycle: CorporateLifeCyclePhase;
+  lifeCycleLabel: string;
+  lifeCycleBadgeClass: string;
+  lifeCycleReason: string;
+  lifeCycleDescription: string;
+  candles?: CandleData[];
+}
+
 export interface VolumeBreakoutScanResult {
   scanTimestamp: number;
   marketTurnoverTotal: number;        // 當日大盤成交總額 (億元)
@@ -167,6 +228,10 @@ export interface VolumeBreakoutScanResult {
   marketBenchmark: MarketBenchmarkInfo; // 大盤加權指數基準比較數據
   allIndustrySectors: IndustrySectorInfo[]; // 台股各項產業分類與最近 5 筆交易量/漲跌幅統計
   top5Sectors: TopSectorVolumeInfo[]; // 從最近 5 筆資料篩選出之 5 個近期熱門產業
-  top20Stocks: BreakoutStockCandidate[]; // 從 5 個熱門產業依 6 大 K 線指標篩選出之 20 檔即將上漲黑馬
+  top20Stocks: BreakoutStockCandidate[]; // 歷史相容保留
+  strategyStocks?: StrategyFilteredStock[]; // 自訂策略篩選前五大產業標的
+  candlesMap?: Record<string, CandleData[]>; // 真實 Yahoo Finance 日K線數據
+  dataSource?: string; // 資料來源標籤
+  isRealData?: boolean; // 是否為交易所/Yahoo真實資料
   summaryMessage: string;
 }
