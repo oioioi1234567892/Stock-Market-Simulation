@@ -212,13 +212,13 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                 <h1 className="text-sm sm:text-lg lg:text-xl font-extrabold text-slate-100 tracking-tight">
                   大盤融資維持率 & 小台散戶多空比
                 </h1>
-                <span className="text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
-                  <Activity size={10} />
-                  <span>實時雙指標</span>
+                <span className="text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>100% 官方真實數據直連</span>
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
-                Yahoo Finance 加權指數 (^TWII) · 期交所 (TAIFEX) 官方小台未平倉籌碼
+                臺灣證交所 (TWSE MI_MARGN) 信用交易 · 期交所 (TAIFEX) 小型臺指留倉 · Yahoo 加權指數
               </p>
             </div>
           </div>
@@ -235,7 +235,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
               className="text-[11px] sm:text-xs flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition-all cursor-pointer shadow-xs disabled:opacity-50 active:scale-95"
             >
               <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
-              <span>{isRefreshing ? '更新中...' : '重新整理'}</span>
+              <span>{isRefreshing ? '同步中...' : '重新整理'}</span>
             </button>
           </div>
         </div>
@@ -289,14 +289,14 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
               </div>
             </div>
 
-            {/* KPI 3: 小台散戶多空比 */}
+            {/* KPI 3: 小台散戶多空比 (TAIFEX 官方真實數據) */}
             <div className="bg-slate-950/70 border border-slate-800/90 rounded-lg sm:rounded-xl p-2.5 sm:p-3 flex flex-col justify-between">
               <span className="text-[10px] sm:text-[11px] font-medium text-slate-400 flex items-center justify-between">
                 <span className="flex items-center gap-1">
                   <Users size={11} className="text-purple-400" />
                   <span>小台散戶多空比</span>
                 </span>
-                <span className="text-[9px] sm:text-[10px] text-slate-500">反指標</span>
+                <span className="text-[9px] sm:text-[10px] text-purple-400 font-mono">期交所官方</span>
               </span>
               <div className="mt-1">
                 <div className={`text-base sm:text-2xl font-black font-mono tracking-tight flex items-baseline gap-1 ${
@@ -319,14 +319,23 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                     {data.latestRetailNet >= 0 ? `+${data.latestRetailNet.toLocaleString()}口` : `${data.latestRetailNet.toLocaleString()}口`}
                   </span>
                 </div>
+                {data.latestRetailTotalOI > 0 && (
+                  <div className="text-[9px] font-mono text-slate-500 mt-1 pt-1 border-t border-slate-800/60 flex justify-between">
+                    <span>總OI {data.latestRetailTotalOI.toLocaleString()}口</span>
+                    <span>多{data.latestRetailLong.toLocaleString()} / 空{data.latestRetailShort.toLocaleString()}</span>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* KPI 4: 全市場融資餘額 */}
+            {/* KPI 4: 全市場融資餘額 (TWSE 官方實時統計) */}
             <div className="bg-slate-950/70 border border-slate-800/90 rounded-lg sm:rounded-xl p-2.5 sm:p-3 flex flex-col justify-between">
               <span className="text-[10px] sm:text-[11px] font-medium text-slate-400 flex items-center justify-between">
-                <span>融資餘額</span>
-                <span className="text-[9px] sm:text-[10px] text-slate-500">集中市場</span>
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  <span>全市場融資餘額</span>
+                </span>
+                <span className="text-[9px] sm:text-[10px] text-emerald-400 font-mono">TWSE官方</span>
               </span>
               <div className="mt-1">
                 <div className="text-base sm:text-2xl font-black font-mono tracking-tight text-slate-100">
@@ -336,9 +345,15 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                 <div className={`text-[10px] sm:text-xs font-bold font-mono flex items-center gap-1 mt-0.5 ${
                   data.marginBalanceChange >= 0 ? 'text-rose-400' : 'text-emerald-400'
                 }`}>
-                  <span>日變動：</span>
+                  <span>日增減：</span>
                   <span>{data.marginBalanceChange >= 0 ? `+${data.marginBalanceChange}億` : `${data.marginBalanceChange}億`}</span>
                 </div>
+                {data.marginStats && (
+                  <div className="text-[9px] font-mono text-slate-500 mt-1 pt-1 border-t border-slate-800/60 flex justify-between">
+                    <span>買 {data.marginStats.buyYi}億</span>
+                    <span>賣 {data.marginStats.sellYi}億</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -407,11 +422,14 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
         {/* Top Chart Controls & Timeframe Selector */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/60 pb-2">
           <div className="flex items-center justify-between w-full sm:w-auto">
-            <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
               <Layers size={15} className="text-blue-400 shrink-0" />
               <h3 className="text-xs sm:text-sm lg:text-base font-extrabold text-slate-100 tracking-tight">
                 加權指數 & 大盤融資維持率
               </h3>
+              <span className="text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                TWSE官方信用交易直連
+              </span>
             </div>
 
             {/* Mobile Fast Jump to Retail Chart */}

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { CandleData, TradeRecord, StockQuote } from '../types/stock.ts';
 import { Maximize2, Minimize2, Crosshair, AlertTriangle, Star, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { InstitutionalTradesPanel } from './InstitutionalTradesPanel.tsx';
 
 interface InteractiveChartProps {
   candles: CandleData[];
@@ -1138,6 +1139,13 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
           <span className="text-emerald-400">綠空</span>
         </div>
       </div>
+
+      {/* 三大法人每日買賣超區塊 (外資 / 投信 / 自營商) */}
+      <InstitutionalTradesPanel
+        symbol={symbol}
+        stockName={stockName}
+        activeDate={activeHoverCandle?.time}
+      />
 
       {/* Bottom status bar for zoom & pan guidance */}
       <div className="px-3 py-1.5 bg-slate-950/90 border-t border-slate-800/80 text-[11px] text-slate-500 flex items-center justify-between">

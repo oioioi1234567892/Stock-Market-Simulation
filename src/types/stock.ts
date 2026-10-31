@@ -341,6 +341,29 @@ export interface MarketMarginSummary {
   percentDropTo130Liquidation: number; // 距 130% 斷頭線尚可承受跌幅 (%)
   historicalHighRatio: number;
   historicalLowRatio: number;
+  dataSource?: string;
+  isRealData?: boolean;
+  marginStats?: {
+    buyYi: number;
+    sellYi: number;
+    cashRedeemYi: number;
+  };
   series: DailyMarketMarginPoint[];
+}
+
+export interface InstitutionalDailyRecord {
+  date: string; // YYYY-MM-DD
+  foreignNetLots: number; // 外資買賣超 (張)
+  trustNetLots: number; // 投信買賣超 (張)
+  dealerNetLots: number; // 自營商買賣超 (張)
+  totalNetLots: number; // 三大法人合計買賣超 (張)
+  foreignBuyLots?: number; // 外資買進 (張)
+  foreignSellLots?: number; // 外資賣出 (張)
+  trustBuyLots?: number; // 投信買進 (張)
+  trustSellLots?: number; // 投信賣出 (張)
+  dealerBuyLots?: number; // 自營商買進 (張)
+  dealerSellLots?: number; // 自營商賣出 (張)
+  closePrice?: number;
+  changePercent?: number;
 }
 

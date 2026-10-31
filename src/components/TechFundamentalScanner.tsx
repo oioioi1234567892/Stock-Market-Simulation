@@ -245,86 +245,163 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
       {/* ========================================================================= */}
       {activeMainTab === 'strategyScreen' && (
         <div className="flex flex-col gap-4 w-full">
-          {/* Top 5 近期熱門產業看板 (精簡字卡) */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 sm:p-3.5 flex flex-col gap-2.5">
-            {/* 5 大板塊卡片橫向列 */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-              {scanResult.top5Sectors.map(sec => {
-                const isSelected = selectedSector === sec.sector;
-                const isCumulativeUp = sec.fiveDayCumulativeChange >= 0;
-                const startDate = sec.recent5Sessions?.[0]?.date || 'T-4';
-                const endDate = sec.recent5Sessions?.[sec.recent5Sessions.length - 1]?.date || '今日';
+          {/* Top 5 近期熱門產業看板 (量化表格呈現) */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 sm:p-3.5 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap pb-1 border-b border-slate-800/70">
+              <div className="flex items-center gap-1.5">
+                <TableIcon size={14} className="text-amber-400" />
+                <h3 className="text-xs sm:text-sm font-black text-slate-100 tracking-tight font-mono">
+                  熱力圖 TOP 5 動能產業排行表
+                </h3>
+                <span className="text-[10px] text-slate-500 font-mono hidden sm:inline">
+                  (點選列可聯動篩選下方成分股日K)
+                </span>
+              </div>
+              {selectedSector !== 'ALL' && (
+                <button
+                  onClick={() => setSelectedSector('ALL')}
+                  className="text-[10px] sm:text-xs px-2 py-0.5 rounded bg-blue-600/20 text-blue-300 border border-blue-500/30 hover:bg-blue-600/30 font-semibold cursor-pointer transition-all"
+                >
+                  重設全部產業
+                </button>
+              )}
+            </div>
 
-                return (
-                  <div
-                    key={sec.sector}
-                    onClick={() => setSelectedSector(prev => (prev === sec.sector ? 'ALL' : sec.sector))}
-                    className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between gap-1.5 relative overflow-hidden group select-none shadow-sm ${
-                      isSelected
-                        ? 'bg-blue-950/60 border-blue-500 shadow-md shadow-blue-900/30 ring-1 ring-blue-500'
-                        : 'bg-slate-950/80 border-slate-800/90 hover:border-slate-700 hover:bg-slate-950'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-[10px] px-1.5 py-0.2 rounded font-mono font-bold bg-slate-800 text-rose-400 border border-slate-700">
-                        🏆 No.{sec.rank}
-                      </span>
-                      <span className="text-[9px] px-1.5 py-0.2 rounded-full font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono">
-                        {sec.volumeSharePercent}% 佔比
-                      </span>
-                    </div>
+            {/* 產業排行榜表格 (無須橫向卷軸，全寬高密度響應式) */}
+            <div className="w-full overflow-hidden rounded-lg border border-slate-800/90 bg-slate-950/70">
+              <table className="w-full text-left text-xs font-mono table-fixed sm:table-auto">
+                <thead className="bg-slate-900/90 text-slate-400 text-[11px] border-b border-slate-800">
+                  <tr>
+                    <th className="py-2 px-2 sm:px-3 w-[44%] sm:w-auto">產業名稱</th>
+                    <th className="py-2 px-1 text-center hidden sm:table-cell sm:w-16">檔數</th>
+                    <th className="py-2 px-1 sm:px-2 text-right w-[18%] sm:w-20">佔比</th>
+                    <th className="py-2 px-1.5 sm:px-2 text-right w-[20%] sm:w-24">1周漲跌</th>
+                    <th className="py-2 px-2 text-right hidden md:table-cell sm:w-24">5日成交額</th>
+                    <th className="py-2 px-1 sm:px-2 text-center w-[18%] sm:w-28">5日量能</th>
+                    <th className="py-2 px-2 text-center hidden sm:table-cell sm:w-16">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {scanResult.top5Sectors.map(sec => {
+                    const isSelected = selectedSector === sec.sector;
+                    const isCumulativeUp = sec.fiveDayCumulativeChange >= 0;
+                    const startDate = sec.recent5Sessions?.[0]?.date || 'T-4';
+                    const endDate = sec.recent5Sessions?.[sec.recent5Sessions.length - 1]?.date || '今日';
 
-                    <div>
-                      <div className="flex items-center justify-between gap-1 mb-1">
-                        <span className="text-xs sm:text-sm font-black text-white group-hover:text-blue-300 transition-colors">
-                          {sec.sector}
-                        </span>
-                        <span className="inline-flex items-center text-[9px] px-1.5 py-0.2 rounded bg-slate-900 text-slate-300 border border-slate-800 font-mono">
-                          {sec.stocksCount} 檔
-                        </span>
-                      </div>
+                    return (
+                      <tr
+                        key={sec.sector}
+                        onClick={() => setSelectedSector(prev => (prev === sec.sector ? 'ALL' : sec.sector))}
+                        className={`transition-colors cursor-pointer select-none group ${
+                          isSelected
+                            ? 'bg-blue-950/75 border-l-3 border-blue-500 hover:bg-blue-950/90'
+                            : 'hover:bg-slate-800/40 bg-slate-950/40'
+                        }`}
+                      >
+                        {/* 排名 + 產業名稱 + 行動端檔數 */}
+                        <td className="py-2 px-2 sm:px-3">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className={`inline-flex items-center justify-center shrink-0 w-4 h-4 sm:w-5 sm:h-5 rounded text-[9px] sm:text-[10px] font-bold ${
+                              sec.rank === 1
+                                ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40'
+                                : sec.rank === 2
+                                ? 'bg-slate-700/50 text-slate-200 border border-slate-600/40'
+                                : sec.rank === 3
+                                ? 'bg-amber-700/25 text-amber-400 border border-amber-700/40'
+                                : 'bg-slate-800 text-slate-400'
+                            }`}>
+                              {sec.rank}
+                            </span>
+                            <div className="flex flex-col min-w-0">
+                              <span className={`font-black text-xs sm:text-sm truncate ${
+                                isSelected ? 'text-blue-300' : 'text-slate-100 group-hover:text-blue-300'
+                              }`}>
+                                {sec.sector}
+                              </span>
+                              <span className="text-[9px] text-slate-500 sm:hidden">
+                                {sec.stocksCount}檔
+                              </span>
+                            </div>
+                          </div>
+                        </td>
 
-                      <div className="flex items-center justify-between text-[11px] font-mono bg-slate-900/90 px-2 py-0.5 rounded border border-slate-800">
-                        <span className="text-slate-400 text-[10px]">1周加權漲跌</span>
-                        <span className={`font-black text-xs sm:text-sm ${isCumulativeUp ? 'text-rose-400' : 'text-emerald-400'}`}>
-                          {isCumulativeUp ? '+' : ''}{sec.fiveDayCumulativeChange}%
-                        </span>
-                      </div>
-                    </div>
+                        {/* 成分股檔數 (桌機專屬欄) */}
+                        <td className="py-2 px-1 text-center hidden sm:table-cell">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-800">
+                            {sec.stocksCount} 檔
+                          </span>
+                        </td>
 
-                    {/* 5 筆量能走勢圖 */}
-                    {sec.recent5Sessions && sec.recent5Sessions.length > 0 && (
-                      <div className="pt-1.5 border-t border-slate-800/70">
-                        <div className="flex items-center justify-between text-[8px] text-slate-500 mb-0.5 font-mono">
-                          <span>5日量能:</span>
-                          <span className="text-slate-400">{startDate} → {endDate}</span>
-                        </div>
-                        <div className="flex items-end gap-1 h-6 w-full bg-slate-900/80 p-0.5 rounded border border-slate-800/70">
-                          {sec.recent5Sessions.map((s, sIdx) => {
-                            const maxVol = Math.max(...sec.recent5Sessions.map(x => x.turnoverAmount)) || 1;
-                            const heightPct = Math.max(22, Math.round((s.turnoverAmount / maxVol) * 100));
-                            const isUpDay = s.changePercent >= 0;
-                            return (
-                              <div
-                                key={sIdx}
-                                className="flex-1 flex flex-col items-center h-full justify-end"
-                                title={`${s.date}: ${s.turnoverAmount}億, ${isUpDay ? '+' : ''}${s.changePercent}%`}
-                              >
-                                <div
-                                  style={{ height: `${heightPct}%` }}
-                                  className={`w-full rounded-xs transition-all ${
-                                    isUpDay ? 'bg-rose-500 hover:bg-rose-400' : 'bg-emerald-500 hover:bg-emerald-400'
-                                  }`}
-                                />
+                        {/* 成交量佔比 */}
+                        <td className="py-2 px-1 sm:px-2 text-right">
+                          <span className="font-bold text-xs text-blue-400">
+                            {sec.volumeSharePercent}%
+                          </span>
+                        </td>
+
+                        {/* 1周加權漲跌 */}
+                        <td className="py-2 px-1.5 sm:px-2 text-right">
+                          <span className={`font-black text-xs sm:text-sm ${
+                            isCumulativeUp ? 'text-rose-400' : 'text-emerald-400'
+                          }`}>
+                            {isCumulativeUp ? '+' : ''}{sec.fiveDayCumulativeChange}%
+                          </span>
+                        </td>
+
+                        {/* 5日總成交額 (桌機/平板欄) */}
+                        <td className="py-2 px-2 text-right hidden md:table-cell text-slate-300">
+                          {sec.fiveDayTotalTurnover ? `${sec.fiveDayTotalTurnover.toLocaleString()}億` : '-'}
+                        </td>
+
+                        {/* 5日量能迷你走勢圖 (緊湊寬度，完美適配手機無卷軸) */}
+                        <td className="py-1.5 px-1 sm:px-2 text-center">
+                          {sec.recent5Sessions && sec.recent5Sessions.length > 0 ? (
+                            <div className="flex flex-col items-center justify-center">
+                              <div className="flex items-end gap-0.5 sm:gap-1 h-4 sm:h-5 w-12 sm:w-20 bg-slate-900/90 p-0.5 rounded border border-slate-800/80">
+                                {sec.recent5Sessions.map((s, sIdx) => {
+                                  const maxVol = Math.max(...sec.recent5Sessions.map(x => x.turnoverAmount)) || 1;
+                                  const heightPct = Math.max(22, Math.round((s.turnoverAmount / maxVol) * 100));
+                                  const isUpDay = s.changePercent >= 0;
+                                  return (
+                                    <div
+                                      key={sIdx}
+                                      className="flex-1 flex flex-col items-center h-full justify-end"
+                                      title={`${s.date}: ${s.turnoverAmount}億, ${isUpDay ? '+' : ''}${s.changePercent}%`}
+                                    >
+                                      <div
+                                        style={{ height: `${heightPct}%` }}
+                                        className={`w-full rounded-xs transition-all ${
+                                          isUpDay ? 'bg-rose-500' : 'bg-emerald-500'
+                                        }`}
+                                      />
+                                    </div>
+                                  );
+                                })}
                               </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                              <span className="text-[7px] sm:text-[8px] text-slate-500 font-mono hidden sm:inline mt-0.5">
+                                {startDate} → {endDate}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-500 text-center block text-[10px]">-</span>
+                          )}
+                        </td>
+
+                        {/* 篩選操作按鈕 (桌機欄) */}
+                        <td className="py-2 px-2 text-center hidden sm:table-cell">
+                          <span className={`text-[10px] px-2 py-0.5 rounded font-bold transition-all ${
+                            isSelected
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200'
+                          }`}>
+                            {isSelected ? '已選取' : '篩選'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
 

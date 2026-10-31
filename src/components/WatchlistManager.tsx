@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { WatchlistItem, StrategyConfig, CandleData, StockStrategySignal, StrategySignalStatus } from '../types/stock.ts';
-import { getWatchlist, addWatchlist, deleteWatchlist, getBacktestRecords, deleteBacktest, fetchBatchCandles, BatchCandlesItem } from '../services/api.ts';
+import { getWatchlist, addWatchlist, deleteWatchlist, fetchBatchCandles, BatchCandlesItem } from '../services/api.ts';
 import { POPULAR_TAIWAN_STOCKS, TaiwanStockInfo, resolveTaiwanSymbol, searchTaiwanStocks } from '../data/taiwanStocks.ts';
 import { runBacktest, evaluateStrategySignal, DEFAULT_STRATEGY } from '../utils/backtestEngine.ts';
-import { Plus, Trash2, Bookmark, History, Search, ArrowUpRight, ArrowDownRight, Sparkles, RefreshCw, Filter, TrendingUp, TrendingDown, Clock, ShieldCheck, Zap, CheckCircle2 } from 'lucide-react';
+import { generateFallbackCandles } from '../services/clientStockFallback.ts';
+import { Plus, Trash2, Bookmark, Search, ArrowUpRight, ArrowDownRight, Sparkles, RefreshCw, Filter, TrendingUp, TrendingDown, Clock, ShieldCheck, Zap, CheckCircle2 } from 'lucide-react';
 
 interface WatchlistManagerProps {
   currentSymbol: string;
@@ -20,9 +21,7 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
   onOpenAuth,
   activeStrategy,
 }) => {
-  const [activeTab, setActiveTab] = useState<'watchlist' | 'backtestHistory'>('watchlist');
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
-  const [backtestRecords, setBacktestRecords] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   // Market and Strategy Data for Watchlist items
@@ -101,19 +100,8 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
     }
   };
 
-  // Load Backtests
-  const loadBacktests = async () => {
-    try {
-      const records = await getBacktestRecords();
-      setBacktestRecords(records);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   useEffect(() => {
     loadWatchlist();
-    loadBacktests();
   }, []);
 
   // Batch fetch candles & quotes whenever watchlist changes
@@ -142,23 +130,11 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
     const map: Record<string, StockStrategySignal> = {};
     watchlist.forEach(item => {
       const data = stockDataMap[item.symbol];
-      if (data && data.candles && data.candles.length >= 35) {
-        map[item.symbol] = evaluateStrategySignal(data.candles, effectiveStrategy, item.symbol, item.name);
-      } else {
-        map[item.symbol] = {
-          status: 'WAIT',
-          statusLabel: '空手觀望',
-          statusDesc: '載入歷史行情中...',
-          badgeClass: 'bg-slate-800/80 text-slate-400 border-slate-700/60',
-          winRate: 0,
-          expectancyPct: 0,
-          expectancyAmount: 0,
-          maxDrawdownPct: 0,
-          totalTrades: 0,
-          profitFactor: 0,
-          totalReturnPct: 0,
-        };
+      let candles = data?.candles;
+      if (!candles || candles.length < 35) {
+        candles = generateFallbackCandles(item.symbol, '2y');
       }
+      map[item.symbol] = evaluateStrategySignal(candles, effectiveStrategy, item.symbol, item.name);
     });
     return map;
   }, [watchlist, stockDataMap, effectiveStrategy]);
@@ -286,17 +262,6 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
     }
   };
 
-  // Handle Delete Backtest record
-  const handleDeleteBacktest = async (id: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      await deleteBacktest(id);
-      setBacktestRecords(prev => prev.filter(r => r.id !== id));
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   // Filtered suggestions when adding: 支援全台股代號、名稱、別名、含括號代號搜尋
   const searchResults = useMemo(() => {
     return searchTaiwanStocks(searchQuery).slice(0, 16);
@@ -304,52 +269,35 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden flex flex-col text-slate-200">
-      {/* Header Tabs */}
+      {/* Header */}
       <div className="px-4 py-3 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
-          <button
-            onClick={() => setActiveTab('watchlist')}
-            className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-colors ${
-              activeTab === 'watchlist' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Bookmark size={14} />
-            <span>自選投資組合 ({watchlist.length})</span>
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab('backtestHistory');
-              if (user) loadBacktests();
-            }}
-            className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-colors ${
-              activeTab === 'backtestHistory' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <History size={14} />
-            <span>PostgreSQL 回測紀錄 ({backtestRecords.length})</span>
-          </button>
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center">
+            <Bookmark size={15} />
+          </div>
+          <h3 className="font-bold text-slate-100 text-sm sm:text-base">
+            自選投資組合 ({watchlist.length})
+          </h3>
         </div>
 
-        {activeTab === 'watchlist' && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={fetchWatchlistData}
-              disabled={isDataLoading}
-              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 text-xs flex items-center gap-1 transition-colors disabled:opacity-50"
-              title="重新掃描最新即時行情與策略狀態"
-            >
-              <RefreshCw size={13} className={isDataLoading ? 'animate-spin text-blue-400' : ''} />
-              <span className="hidden sm:inline">即時掃描</span>
-            </button>
-            <button
-              onClick={() => setIsAdding(true)}
-              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg flex items-center gap-1 transition-colors"
-            >
-              <Plus size={14} />
-              <span>新增自選股</span>
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchWatchlistData}
+            disabled={isDataLoading}
+            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 text-xs flex items-center gap-1 transition-colors disabled:opacity-50 cursor-pointer"
+            title="重新掃描最新即時行情與策略狀態"
+          >
+            <RefreshCw size={13} className={isDataLoading ? 'animate-spin text-blue-400' : ''} />
+            <span className="hidden sm:inline">即時掃描</span>
+          </button>
+          <button
+            onClick={() => setIsAdding(true)}
+            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+          >
+            <Plus size={14} />
+            <span>新增自選股</span>
+          </button>
+        </div>
       </div>
 
       {/* Toast Notification */}
@@ -365,8 +313,7 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
 
       {/* Content Area */}
       <div className="p-3">
-        {activeTab === 'watchlist' ? (
-          <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3">
             {!user && onOpenAuth && (
               <div className="p-2.5 bg-blue-950/30 border border-blue-800/40 rounded-lg text-xs text-blue-300 flex items-center justify-between">
                 <span>目前為本機高效存儲模式。登入 Google 帳號可開啟自選股多裝置同步與雲端備份。</span>
@@ -511,34 +458,45 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
                       </div>
                     </div>
 
-                    {/* 2. 中間：即時股價與漲跌 (橫排) */}
-                    <div className="flex items-baseline justify-between md:justify-start gap-2.5 min-w-0 md:min-w-[170px]">
-                      {quote ? (
-                        <>
-                          <span className={`text-base sm:text-lg font-black font-mono tracking-tight ${priceColor}`}>
-                            ${quote.price.toFixed(2)}
-                          </span>
-                          <span className={`text-xs font-mono font-semibold flex items-center gap-0.5 ${priceColor}`}>
-                            {isUp ? '▲' : isDown ? '▼' : ''} {quote.change >= 0 ? `+${quote.change.toFixed(2)}` : quote.change.toFixed(2)} ({quote.changePercent >= 0 ? `+${quote.changePercent.toFixed(2)}%` : `${quote.changePercent.toFixed(2)}%`})
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-xs font-mono text-slate-400 animate-pulse">報價連線中...</span>
+                    {/* 2. 中間：即時股價與漲跌 (橫排) 與 目標價數值 */}
+                    <div className="flex flex-col md:flex-row md:items-baseline justify-between md:justify-start gap-1 md:gap-2.5 min-w-0 md:min-w-[180px]">
+                      <div className="flex items-baseline gap-2">
+                        {quote ? (
+                          <>
+                            <span className={`text-base sm:text-lg font-black font-mono tracking-tight ${priceColor}`}>
+                              ${quote.price.toFixed(2)}
+                            </span>
+                            <span className={`text-xs font-mono font-semibold flex items-center gap-0.5 ${priceColor}`}>
+                              {isUp ? '▲' : isDown ? '▼' : ''} {quote.change >= 0 ? `+${quote.change.toFixed(2)}` : quote.change.toFixed(2)} ({quote.changePercent >= 0 ? `+${quote.changePercent.toFixed(2)}%` : `${quote.changePercent.toFixed(2)}%`})
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-xs font-mono text-slate-400 animate-pulse">報價連線中...</span>
+                        )}
+                      </div>
+                      {(item.targetBuyPrice || item.targetSellPrice) && (
+                        <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5 shrink-0">
+                          {item.targetBuyPrice && (
+                            <span className="text-red-400/90 font-medium">買進 ${item.targetBuyPrice}</span>
+                          )}
+                          {item.targetBuyPrice && item.targetSellPrice && <span className="text-slate-600">/</span>}
+                          {item.targetSellPrice && (
+                            <span className="text-emerald-400/90 font-medium">目標 ${item.targetSellPrice}</span>
+                          )}
+                        </div>
                       )}
                     </div>
 
                     {/* 3. 右側：操盤手核心 3 大量化回測數據 (勝率 / 期望值 / 最大回測) 橫條化 */}
                     <div className="flex items-center justify-between md:justify-end gap-2.5 sm:gap-4 flex-1">
-                      <div className="flex items-center gap-3 sm:gap-4 bg-slate-900/80 border border-slate-800/90 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-300 w-full md:w-auto justify-around md:justify-start">
+                      <div className="flex items-center gap-2.5 sm:gap-3.5 bg-slate-900/90 border border-slate-800 rounded-lg px-2.5 sm:px-3 py-1.5 text-xs font-mono text-slate-300 w-full md:w-auto justify-around md:justify-start">
                         {/* 策略勝率 */}
                         <div className="flex items-baseline gap-1">
                           <span className="text-[10px] text-slate-400 font-sans">勝率:</span>
                           <span className={`font-bold ${
-                            signal.totalTrades > 0
-                              ? signal.winRate >= 60 ? 'text-emerald-400' : signal.winRate >= 50 ? 'text-amber-300' : 'text-slate-300'
-                              : 'text-slate-500'
+                            signal.winRate >= 60 ? 'text-emerald-400' : signal.winRate >= 50 ? 'text-amber-300' : signal.winRate > 0 ? 'text-blue-400' : 'text-slate-400'
                           }`}>
-                            {signal.totalTrades > 0 ? `${signal.winRate.toFixed(1)}%` : '--'}
+                            {signal.winRate.toFixed(1)}%
                           </span>
                         </div>
 
@@ -548,11 +506,9 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
                         <div className="flex items-baseline gap-1">
                           <span className="text-[10px] text-slate-400 font-sans">期望值:</span>
                           <span className={`font-bold ${
-                            signal.totalTrades > 0
-                              ? signal.expectancyPct > 0 ? 'text-red-400' : signal.expectancyPct < 0 ? 'text-emerald-400' : 'text-slate-300'
-                              : 'text-slate-500'
+                            signal.expectancyPct > 0 ? 'text-red-400' : signal.expectancyPct < 0 ? 'text-emerald-400' : 'text-slate-400'
                           }`}>
-                            {signal.totalTrades > 0 ? `${signal.expectancyPct >= 0 ? '+' : ''}${signal.expectancyPct.toFixed(2)}%` : '--'}
+                            {signal.expectancyPct >= 0 ? '+' : ''}{signal.expectancyPct.toFixed(2)}%
                           </span>
                         </div>
 
@@ -562,11 +518,18 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
                         <div className="flex items-baseline gap-1">
                           <span className="text-[10px] text-slate-400 font-sans">最大回測:</span>
                           <span className={`font-bold ${
-                            signal.totalTrades > 0
-                              ? signal.maxDrawdownPct > 15 ? 'text-rose-400' : 'text-amber-300'
-                              : 'text-slate-500'
+                            signal.maxDrawdownPct > 15 ? 'text-rose-400' : signal.maxDrawdownPct > 0 ? 'text-amber-300' : 'text-slate-400'
                           }`}>
-                            {signal.totalTrades > 0 ? `-${Math.abs(signal.maxDrawdownPct).toFixed(2)}%` : '--'}
+                            -{Math.abs(signal.maxDrawdownPct).toFixed(1)}%
+                          </span>
+                        </div>
+
+                        {/* 樣本次數 */}
+                        <div className="hidden sm:block w-px h-3 bg-slate-800"></div>
+                        <div className="hidden sm:flex items-baseline gap-1">
+                          <span className="text-[10px] text-slate-400 font-sans">交易:</span>
+                          <span className="font-bold text-slate-300">
+                            {signal.totalTrades}次
                           </span>
                         </div>
                       </div>
@@ -597,66 +560,6 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
               )}
             </div>
           </div>
-        ) : (
-          /* Backtest History Tab */
-          <div className="flex flex-col gap-2">
-            {backtestRecords.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-500 flex flex-col items-center gap-2">
-                <History size={28} className="text-slate-600" />
-                <p>尚未儲存任何回測紀錄。在策略回測區完成計算後，點擊「儲存回測紀錄」即可收錄於此。</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {backtestRecords.map(rec => (
-                  <div
-                    key={rec.id}
-                    onClick={() => onSelectStock(rec.symbol, rec.stockName)}
-                    className="p-3.5 bg-slate-950/70 border border-slate-800 hover:border-slate-700 rounded-lg flex flex-col justify-between cursor-pointer transition-colors"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-100 text-sm">{rec.stockName}</span>
-                          <span className="text-xs font-mono text-slate-400">{rec.symbol}</span>
-                        </div>
-                        <span className="text-xs text-blue-400 font-medium block mt-0.5">
-                          {rec.strategyName}
-                        </span>
-                        <span className="text-[11px] text-slate-500">{rec.dateRange}</span>
-                      </div>
-
-                      <button
-                        onClick={e => handleDeleteBacktest(rec.id, e)}
-                        className="text-slate-500 hover:text-red-400 p-1 transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-4 gap-2 text-center text-xs font-mono mt-3 pt-2.5 border-t border-slate-800">
-                      <div>
-                        <span className="text-[10px] text-slate-500 block">交易次數</span>
-                        <strong className="text-slate-200">{rec.totalTrades}次</strong>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 block">勝率</span>
-                        <strong className="text-red-400">{rec.winRate}</strong>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 block">總報酬</span>
-                        <strong className="text-red-400">{rec.totalReturn}</strong>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 block">期望值</span>
-                        <strong className="text-slate-200">{rec.expectancy}</strong>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Add Stock Dialog Modal */}

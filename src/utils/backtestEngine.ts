@@ -567,7 +567,7 @@ export const DEFAULT_ENTRY_CONDITIONS: EntryCondition[] = [
     type: 'checkMaGoldenCross',
     name: '周月金叉 (MA5>MA20)',
     description: 'MA5 向上突破 MA20 月線瞬間（單日穿透觸發型。若中途停利出場，需待死叉後重新金叉方能再次進場）',
-    enabled: true,
+    enabled: false,
   },
   {
     id: 'entry-2',

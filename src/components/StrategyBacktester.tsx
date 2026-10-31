@@ -704,26 +704,6 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
             <span className="text-xs text-slate-400">
               進場: {entryLogic} ({activeEntryCount}項) · 出場: {exitLogic} ({activeExitCount}項) · ATR風控: 初始{atrInitialStopMultiplier > 0 ? `${atrInitialStopMultiplier}x` : '停用'} / 移動停利{atrTrailingStopMultiplier > 0 ? `${atrTrailingStopMultiplier}x` : '停用'}
             </span>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleSaveToDatabase}
-                disabled={isSaving}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs rounded-lg flex items-center gap-1.5 text-slate-200 transition-colors cursor-pointer"
-              >
-                {saveSuccess ? (
-                  <>
-                    <CheckCircle2 size={14} className="text-emerald-400" />
-                    <span className="text-emerald-400 font-medium">已儲存回測紀錄</span>
-                  </>
-                ) : (
-                  <>
-                    <Save size={14} className="text-blue-400" />
-                    <span>{isSaving ? '儲存中...' : '儲存回測紀錄'}</span>
-                  </>
-                )}
-              </button>
-            </div>
           </div>
 
           {/* 操盤手 6 大核心量化績效指標 (交易次數、策略勝率、累積收益率、期望值、最大回測、年化報酬) */}

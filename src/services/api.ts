@@ -131,13 +131,13 @@ export interface BatchCandlesItem {
 /**
  * Batch fetch candles and quotes for Watchlist real-time scanning
  */
-export async function fetchBatchCandles(symbols: string[]): Promise<Record<string, BatchCandlesItem>> {
+export async function fetchBatchCandles(symbols: string[], range: string = '2y'): Promise<Record<string, BatchCandlesItem>> {
   if (!symbols || symbols.length === 0) return {};
   try {
     const res = await fetch('/api/stocks/batch-candles', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbols }),
+      body: JSON.stringify({ symbols, range }),
     });
     if (res.ok && isJsonResponse(res)) {
       const data = await res.json();
@@ -152,7 +152,7 @@ export async function fetchBatchCandles(symbols: string[]): Promise<Record<strin
   const fallbackResults: Record<string, BatchCandlesItem> = {};
   symbols.forEach(sym => {
     const resolved = resolveTaiwanSymbol(sym);
-    const candles = generateFallbackCandles(sym, '1y');
+    const candles = generateFallbackCandles(sym, range);
     const last = candles[candles.length - 1];
     const prev = candles.length > 1 ? candles[candles.length - 2] : last;
     const change = Number((last.close - prev.close).toFixed(2));
