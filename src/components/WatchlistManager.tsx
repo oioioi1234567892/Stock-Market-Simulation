@@ -102,6 +102,17 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
 
   useEffect(() => {
     loadWatchlist();
+
+    const handleExternalUpdate = () => {
+      loadWatchlist();
+    };
+
+    window.addEventListener('watchlist-changed', handleExternalUpdate);
+    window.addEventListener('storage', handleExternalUpdate);
+    return () => {
+      window.removeEventListener('watchlist-changed', handleExternalUpdate);
+      window.removeEventListener('storage', handleExternalUpdate);
+    };
   }, []);
 
   // Batch fetch candles & quotes whenever watchlist changes
@@ -184,6 +195,7 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
       });
       if (res.item) {
         setWatchlist(prev => [res.item, ...prev.filter(i => i.symbol !== res.item.symbol)]);
+        window.dispatchEvent(new CustomEvent('watchlist-changed', { detail: { action: 'add', item: res.item } }));
         setToastMessage(`已成功將 ${res.item.name} (${res.item.symbol}) 加入自選清單！`);
         setTimeout(() => setToastMessage(null), 3500);
       }
@@ -231,6 +243,7 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
       });
       if (res.item) {
         setWatchlist(prev => [res.item, ...prev.filter(i => i.symbol !== res.item.symbol)]);
+        window.dispatchEvent(new CustomEvent('watchlist-changed', { detail: { action: 'add', item: res.item } }));
         setToastMessage(`已成功將 ${res.item.name} (${res.item.symbol}) 加入自選清單！`);
         setTimeout(() => setToastMessage(null), 3500);
       }
@@ -256,9 +269,11 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({
     try {
       await deleteWatchlist(id);
       setWatchlist(prev => prev.filter(item => item.id !== id));
+      window.dispatchEvent(new CustomEvent('watchlist-changed', { detail: { action: 'delete', id } }));
     } catch (err) {
       console.error('Delete watchlist error:', err);
       setWatchlist(prev => prev.filter(item => item.id !== id));
+      window.dispatchEvent(new CustomEvent('watchlist-changed', { detail: { action: 'delete', id } }));
     }
   };
 

@@ -17,6 +17,8 @@ import { runVolumeBreakoutScan, ALL_TAIWAN_SECTORS, generateBreakoutCandlesForSt
 import { VolumeBreakoutScanResult, TopSectorVolumeInfo } from '../types/volumeBreakout.ts';
 import { MarketHeatmapResponse, HeatmapSectorItem, HeatmapStockItem } from '../types/marketHeatmap.ts';
 import { isSectorMatch } from '../utils/corporateLifecycleEngine.ts';
+import { CompanyIntelReport } from '../types/companyIntel.ts';
+import { generateCompanyIntelFallback } from '../data/companyIntelData.ts';
 
 dotenv.config();
 
@@ -942,6 +944,141 @@ app.get('/api/ai/batch-analysis', async (_req: Request, res: Response) => {
       }
     });
     res.json(all);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 8.3 自動搜索該公司實際最新消息 (研發、財報、未來方向、核心優缺點)
+const companyIntelCache = new Map<string, { data: CompanyIntelReport; timestamp: number }>();
+
+app.get('/api/stocks/:symbol/company-intel', async (req: Request, res: Response) => {
+  try {
+    const rawSymbol = req.params.symbol;
+    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    const resolved = resolveTaiwanSymbol(rawSymbol);
+    const code = resolved.symbol.replace(/\.TW(O)?$/i, '');
+    const stockName = resolved.name;
+
+    const cacheKey = resolved.symbol;
+    const cached = companyIntelCache.get(cacheKey);
+    if (!forceRefresh && cached && Date.now() - cached.timestamp < 600000) {
+      return res.json(cached.data);
+    }
+
+    // 準備基準真實情報 (高精準防呆備援)
+    const baseIntel = generateCompanyIntelFallback(resolved.symbol);
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      companyIntelCache.set(cacheKey, { data: baseIntel, timestamp: Date.now() });
+      return res.json(baseIntel);
+    }
+
+    try {
+      const prompt = `你是一位專業台灣股市頂級操盤手兼科技產業研究員。
+請以最簡單扼要、條理分明、無冗言的方式，檢索並摘要台灣上市公司【${stockName} (${code}, ${resolved.symbol})】的實際最新情報。
+
+請針對以下5大核心面向進行精簡濃縮，並以合法 JSON 格式回傳：
+1. executiveSummary: 最簡單扼要的一句話總結（約40-60字，直指核心地位與近期焦點）。
+2. rndProgress: 該公司最新實際研發進展（包括新製程、新架構、關鍵專利或實驗室進度，3點條列）。
+3. financialHighlights: 最新財報動態（包含最新季度營收、毛利率趨勢、獲利表現及法說會最新指引，3點條列）。
+4. futureDirection: 未來戰略發展方向（包含資本支出、海外佈局、次世代產品規劃或新客戶催化劑，3點條列）。
+5. pros: 投資該公司的核心優點（核心競爭力、護城河、財務定價權，3點短句條列）。
+6. cons: 投資該公司的核心缺點與潛在風險（宏觀逆風、競爭壓力、折舊或客戶集中風險，3點短句條列）。
+7. traderTakeaway: 股市頂級操盤手的精闢實戰建議一句話。
+
+請嚴格只輸出以下合法 JSON 格式，不要包含任何額外說明：
+{
+  "executiveSummary": "...",
+  "rndProgress": {
+    "title": "最新研發突破與專利進展",
+    "highlights": ["...", "...", "..."]
+  },
+  "financialHighlights": {
+    "title": "最新財報與法說會重點",
+    "quarter": "最新季度",
+    "highlights": ["...", "...", "..."]
+  },
+  "futureDirection": {
+    "title": "未來戰略與擴產方向",
+    "highlights": ["...", "...", "..."]
+  },
+  "pros": ["優點1", "優點2", "優點3"],
+  "cons": ["缺點1", "缺點2", "缺點3"],
+  "traderTakeaway": "..."
+}`;
+
+      const aiResponse = await Promise.race([
+        ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+          },
+        }),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Gemini search timeout')), 10000)),
+      ]);
+
+      const text = aiResponse.text || '';
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+
+        // 提取 Google Search Grounding 來源連結
+        const rawChunks = aiResponse.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+        const groundingSources: Array<{ title: string; url: string }> = [];
+        rawChunks.forEach((c: any) => {
+          if (c.web?.uri) {
+            groundingSources.push({
+              title: c.web.title || c.web.uri,
+              url: c.web.uri,
+            });
+          }
+        });
+
+        const report: CompanyIntelReport = {
+          symbol: resolved.symbol,
+          name: stockName,
+          code,
+          updatedAt: '即時搜尋更新',
+          source: 'google_search_grounding',
+          executiveSummary: parsed.executiveSummary || baseIntel.executiveSummary,
+          rndProgress: {
+            title: parsed.rndProgress?.title || baseIntel.rndProgress.title,
+            highlights: Array.isArray(parsed.rndProgress?.highlights) && parsed.rndProgress.highlights.length > 0
+              ? parsed.rndProgress.highlights
+              : baseIntel.rndProgress.highlights,
+          },
+          financialHighlights: {
+            title: parsed.financialHighlights?.title || baseIntel.financialHighlights.title,
+            quarter: parsed.financialHighlights?.quarter || baseIntel.financialHighlights.quarter,
+            highlights: Array.isArray(parsed.financialHighlights?.highlights) && parsed.financialHighlights.highlights.length > 0
+              ? parsed.financialHighlights.highlights
+              : baseIntel.financialHighlights.highlights,
+          },
+          futureDirection: {
+            title: parsed.futureDirection?.title || baseIntel.futureDirection.title,
+            highlights: Array.isArray(parsed.futureDirection?.highlights) && parsed.futureDirection.highlights.length > 0
+              ? parsed.futureDirection.highlights
+              : baseIntel.futureDirection.highlights,
+          },
+          pros: Array.isArray(parsed.pros) && parsed.pros.length > 0 ? parsed.pros : baseIntel.pros,
+          cons: Array.isArray(parsed.cons) && parsed.cons.length > 0 ? parsed.cons : baseIntel.cons,
+          traderTakeaway: parsed.traderTakeaway || baseIntel.traderTakeaway,
+          groundingSources: groundingSources.slice(0, 5),
+        };
+
+        companyIntelCache.set(cacheKey, { data: report, timestamp: Date.now() });
+        return res.json(report);
+      }
+    } catch (searchErr: any) {
+      console.warn(`[CompanyIntel] Search grounding fallback for ${resolved.symbol}:`, searchErr?.message);
+    }
+
+    // 備援：使用驗證資料庫與動態推算
+    companyIntelCache.set(cacheKey, { data: baseIntel, timestamp: Date.now() });
+    return res.json(baseIntel);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

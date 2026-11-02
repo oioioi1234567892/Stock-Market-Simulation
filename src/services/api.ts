@@ -1,5 +1,7 @@
 import { StockQuote, CandleData, WatchlistItem, MarketMarginSummary } from '../types/stock.ts';
 import { MarketHeatmapResponse } from '../types/marketHeatmap.ts';
+import { CompanyIntelReport } from '../types/companyIntel.ts';
+import { generateCompanyIntelFallback } from '../data/companyIntelData.ts';
 import { TaiwanStockInfo, POPULAR_TAIWAN_STOCKS, resolveTaiwanSymbol, searchTaiwanStocks } from '../data/taiwanStocks.ts';
 import { generateFallbackCandles, generateFallbackQuote } from './clientStockFallback.ts';
 import { MarketFinancialProgress, calculateMarketFinancialProgress } from '../utils/marketFinancialCalendar.ts';
@@ -515,6 +517,28 @@ export async function fetchMarket35SectorsHeatmap(forceRefresh: boolean = false)
     console.warn('fetchMarket35SectorsHeatmap network error:', err);
   }
   return null;
+}
+
+/**
+ * 撈取該公司實際最新情報（研發、財報、未來方向、核心優缺點）
+ */
+export async function fetchCompanyIntel(symbol: string, refresh: boolean = false): Promise<CompanyIntelReport> {
+  const resolved = resolveTaiwanSymbol(symbol);
+  try {
+    const refreshQuery = refresh ? '?refresh=1' : '';
+    const res = await fetch(`/api/stocks/${encodeURIComponent(resolved.symbol)}/company-intel${refreshQuery}`);
+    if (res.ok && isJsonResponse(res)) {
+      const data = await res.json();
+      if (data && data.executiveSummary) {
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn(`[API] fetchCompanyIntel network error for ${symbol}:`, err);
+  }
+
+  // 離線/網絡錯誤時採用已驗證實體資料庫備援
+  return generateCompanyIntelFallback(resolved.symbol);
 }
 
 

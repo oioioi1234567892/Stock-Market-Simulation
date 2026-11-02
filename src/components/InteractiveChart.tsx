@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { CandleData, TradeRecord, StockQuote } from '../types/stock.ts';
-import { Maximize2, Minimize2, Crosshair, AlertTriangle, Star, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { Maximize2, Minimize2, Crosshair, AlertTriangle, Star, RefreshCw, TrendingUp, TrendingDown, Sparkles } from 'lucide-react';
 import { InstitutionalTradesPanel } from './InstitutionalTradesPanel.tsx';
 
 interface InteractiveChartProps {
@@ -874,10 +874,18 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
           {onToggleWatchlist && (
             <button
               onClick={onToggleWatchlist}
-              className="p-1 rounded hover:bg-slate-800 transition-colors cursor-pointer text-slate-400 hover:text-amber-400"
-              title={isInWatchlist ? '已在自選股 (點擊移除)' : '加入自選監控'}
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold transition-all cursor-pointer active:scale-95 ${
+                isInWatchlist
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 hover:bg-amber-500/30 shadow-xs'
+                  : 'bg-slate-800 text-slate-300 border border-slate-700 hover:border-amber-400/60 hover:text-amber-300 hover:bg-slate-750'
+              }`}
+              title={isInWatchlist ? '已在自選池 (點擊移除)' : '點按星號加入股票自選池'}
             >
-              <Star size={13} className={isInWatchlist ? 'fill-amber-400 text-amber-400' : ''} />
+              <Star
+                size={14}
+                className={isInWatchlist ? 'fill-amber-400 text-amber-400' : 'text-slate-400 hover:text-amber-400'}
+              />
+              <span className="text-[11px]">{isInWatchlist ? '已自選' : '加自選'}</span>
             </button>
           )}
           {liveQuote && (

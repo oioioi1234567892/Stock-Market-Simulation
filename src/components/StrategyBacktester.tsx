@@ -38,6 +38,9 @@ import {
   Zap,
   Info,
   RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 interface StrategyBacktesterProps {
@@ -111,6 +114,11 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
   const [activeTab, setActiveTab] = useState<'summary' | 'trades'>('summary');
   const [chartViewMode, setChartViewMode] = useState<'equity' | 'drawdown'>('equity');
   const [hoverEquityIndex, setHoverEquityIndex] = useState<number | null>(null);
+
+  // Collapse / Expand states for condition cards to optimize mobile & desktop screen ergonomics
+  const [isEntryCollapsed, setIsEntryCollapsed] = useState<boolean>(false);
+  const [isExitCollapsed, setIsExitCollapsed] = useState<boolean>(false);
+  const [isRiskCollapsed, setIsRiskCollapsed] = useState<boolean>(false);
 
   // Calculate current ATR from candle data for reference
   const currentAtr = useMemo(() => {
@@ -368,11 +376,57 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
         </div>
       </div>
 
+      {/* 核心策略參數配置區控制列 (總結與一鍵全部收攏/展開) */}
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-950/80 px-3.5 py-2 rounded-xl border border-slate-800 text-xs">
+        <div className="flex items-center gap-2 flex-wrap">
+          <SlidersHorizontal size={14} className="text-blue-400 shrink-0" />
+          <span className="font-semibold text-slate-200">策略條件配置</span>
+          <div className="flex items-center gap-1.5 text-[11px] font-mono text-slate-400 flex-wrap">
+            <span className="bg-emerald-950/60 border border-emerald-800/50 text-emerald-300 px-1.5 py-0.5 rounded">
+              進場: {activeEntryCount}項 ({entryLogic})
+            </span>
+            <span className="bg-amber-950/60 border border-amber-800/50 text-amber-300 px-1.5 py-0.5 rounded">
+              出場: {activeExitCount}項 ({exitLogic})
+            </span>
+            <span className="bg-purple-950/60 border border-purple-800/50 text-purple-300 px-1.5 py-0.5 rounded">
+              風控: {atrInitialStopMultiplier > 0 ? `${atrInitialStopMultiplier}x` : '無'} / {atrTrailingStopMultiplier > 0 ? `${atrTrailingStopMultiplier}x` : '無'}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* 一鍵全部收攏 / 展開 */}
+          <button
+            type="button"
+            onClick={() => {
+              const allCollapsed = isEntryCollapsed && isExitCollapsed && isRiskCollapsed;
+              setIsEntryCollapsed(!allCollapsed);
+              setIsExitCollapsed(!allCollapsed);
+              setIsRiskCollapsed(!allCollapsed);
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-750 border border-slate-700 transition-all cursor-pointer active:scale-95"
+            title="一鍵收攏或展開下方所有條件清單，便於在手機上查看回測報表與圖表"
+          >
+            {isEntryCollapsed && isExitCollapsed && isRiskCollapsed ? (
+              <>
+                <ChevronDown size={14} className="text-blue-400" />
+                <span>全部展開</span>
+              </>
+            ) : (
+              <>
+                <ChevronUp size={14} className="text-blue-400" />
+                <span>全部收攏</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
       {/* 核心策略參數配置區 (8進場 + 7出場 + 動態風控) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* 左側：8 大進場獨立函式池 (5 欄寬度) */}
-        <div className="lg:col-span-4 flex flex-col gap-2.5 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80">
-          <div className="flex items-center justify-between border-b border-slate-800/60 pb-2">
+        <div className="lg:col-span-4 flex flex-col gap-2.5 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 transition-all">
+          <div className="flex items-center justify-between border-b border-slate-800/60 pb-2 flex-wrap gap-2">
             <div className="flex items-center gap-1.5">
               <TrendingUp size={16} className="text-emerald-400" />
               <span className="font-semibold text-sm text-slate-100">8 大進場獨立函式池</span>
@@ -381,87 +435,139 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
               </span>
             </div>
 
-            {/* 進場 AND / OR 運算切換 */}
-            <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-md p-0.5 text-xs">
+            <div className="flex items-center gap-1.5">
+              {/* 進場 AND / OR 運算切換 */}
+              <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-md p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setEntryLogic('AND')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                    entryLogic === 'AND'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="全部勾選條件皆符合才進場"
+                >
+                  AND
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEntryLogic('OR')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                    entryLogic === 'OR'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="任一勾選條件符合即進場"
+                >
+                  OR
+                </button>
+              </div>
+
+              {/* 收攏 / 展開 按鈕 */}
               <button
                 type="button"
-                onClick={() => setEntryLogic('AND')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                  entryLogic === 'AND'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="全部勾選條件皆符合才進場"
+                onClick={() => setIsEntryCollapsed(!isEntryCollapsed)}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-750 border border-slate-700/90 transition-all cursor-pointer active:scale-95"
+                title={isEntryCollapsed ? "展開 8 大進場函式清單" : "收攏 8 大進場函式清單，減少滾動空間"}
               >
-                AND (嚴格交集)
-              </button>
-              <button
-                type="button"
-                onClick={() => setEntryLogic('OR')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                  entryLogic === 'OR'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="任一勾選條件符合即進場"
-              >
-                OR (靈活聯集)
+                {isEntryCollapsed ? (
+                  <>
+                    <ChevronDown size={13} className="text-emerald-400" />
+                    <span className="text-[11px]">展開</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronUp size={13} className="text-slate-400" />
+                    <span className="text-[11px]">收攏</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
 
-          <div className="text-[11px] text-slate-400 flex items-center justify-between">
-            <span>邏輯：{entryLogic === 'AND' ? '須同時滿足全部勾選條件' : '滿足任一勾選條件即進場'}</span>
-            <button
-              onClick={() => setEntryConditions(prev => prev.map(c => ({ ...c, enabled: true })))}
-              className="text-emerald-400 hover:underline text-[10px]"
+          {isEntryCollapsed ? (
+            <div
+              onClick={() => setIsEntryCollapsed(false)}
+              className="p-2.5 bg-slate-900/60 hover:bg-slate-900/90 border border-slate-800 hover:border-emerald-700/50 rounded-lg cursor-pointer transition-all flex flex-col gap-1.5"
+              title="點擊展開 8 大進場函式清單"
             >
-              全選
-            </button>
-          </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">
+                  邏輯：<strong className="text-emerald-400 font-mono">{entryLogic}</strong> (已啟用 {activeEntryCount}/8 項)
+                </span>
+                <span className="text-[11px] text-emerald-400 flex items-center gap-0.5 font-medium">
+                  點擊展開 <ChevronDown size={12} />
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {entryConditions.filter(c => c.enabled).length === 0 ? (
+                  <span className="text-[11px] text-slate-500 italic">未勾選任何進場條件</span>
+                ) : (
+                  entryConditions.filter(c => c.enabled).map(c => (
+                    <span key={c.id} className="text-[10px] bg-emerald-950/70 border border-emerald-800/50 text-emerald-300 px-1.5 py-0.5 rounded">
+                      {c.name}
+                    </span>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="text-[11px] text-slate-400 flex items-center justify-between">
+                <span>邏輯：{entryLogic === 'AND' ? '須同時滿足全部勾選條件' : '滿足任一勾選條件即進場'}</span>
+                <button
+                  onClick={() => setEntryConditions(prev => prev.map(c => ({ ...c, enabled: true })))}
+                  className="text-emerald-400 hover:underline text-[10px]"
+                >
+                  全選
+                </button>
+              </div>
 
-          {/* 8 大進場函式勾選清單 */}
-          <div className="flex flex-col gap-1.5 max-h-[420px] overflow-y-auto pr-1">
-            {entryConditions.map(cond => (
-              <label
-                key={cond.id}
-                className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer border transition-all ${
-                  cond.enabled
-                    ? 'bg-emerald-950/20 border-emerald-800/60 shadow-xs'
-                    : 'bg-slate-900/40 border-slate-800/70 hover:bg-slate-900/80 hover:border-slate-700'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={cond.enabled}
-                  onChange={e => {
-                    setEntryConditions(prev =>
-                      prev.map(c => (c.id === cond.id ? { ...c, enabled: e.target.checked } : c))
-                    );
-                  }}
-                  className="mt-1 rounded border-slate-700 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-                />
-                <div className="flex flex-col flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-1 flex-wrap">
-                    <span className={`text-xs font-semibold ${cond.enabled ? 'text-emerald-300' : 'text-slate-300'}`}>
-                      {cond.name}
-                    </span>
-                    <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-1 rounded">
-                      {cond.type}
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-slate-400 mt-0.5 leading-tight">
-                    {cond.description}
-                  </span>
-                </div>
-              </label>
-            ))}
-          </div>
+              {/* 8 大進場函式勾選清單 */}
+              <div className="flex flex-col gap-1.5 max-h-[420px] overflow-y-auto pr-1">
+                {entryConditions.map(cond => (
+                  <label
+                    key={cond.id}
+                    className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer border transition-all ${
+                      cond.enabled
+                        ? 'bg-emerald-950/20 border-emerald-800/60 shadow-xs'
+                        : 'bg-slate-900/40 border-slate-800/70 hover:bg-slate-900/80 hover:border-slate-700'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={cond.enabled}
+                      onChange={e => {
+                        setEntryConditions(prev =>
+                          prev.map(c => (c.id === cond.id ? { ...c, enabled: e.target.checked } : c))
+                        );
+                      }}
+                      className="mt-1 rounded border-slate-700 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                    />
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1 flex-wrap">
+                        <span className={`text-xs font-semibold ${cond.enabled ? 'text-emerald-300' : 'text-slate-300'}`}>
+                          {cond.name}
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-1 rounded">
+                          {cond.type}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-400 mt-0.5 leading-tight">
+                        {cond.description}
+                      </span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* 中間：7 大出場獨立函式池 (4 欄寬度) */}
-        <div className="lg:col-span-4 flex flex-col gap-2.5 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80">
-          <div className="flex items-center justify-between border-b border-slate-800/60 pb-2">
+        <div className="lg:col-span-4 flex flex-col gap-2.5 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 transition-all">
+          <div className="flex items-center justify-between border-b border-slate-800/60 pb-2 flex-wrap gap-2">
             <div className="flex items-center gap-1.5">
               <TrendingDown size={16} className="text-amber-400" />
               <span className="font-semibold text-sm text-slate-100">7 大出場獨立函式池</span>
@@ -470,185 +576,283 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
               </span>
             </div>
 
-            {/* 出場 AND / OR 運算切換 */}
-            <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-md p-0.5 text-xs">
+            <div className="flex items-center gap-1.5">
+              {/* 出場 AND / OR 運算切換 */}
+              <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-md p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setExitLogic('AND')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                    exitLogic === 'AND'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="全部勾選條件皆符合才出場"
+                >
+                  AND
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExitLogic('OR')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                    exitLogic === 'OR'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="任一勾選條件符合即平倉"
+                >
+                  OR
+                </button>
+              </div>
+
+              {/* 收攏 / 展開 按鈕 */}
               <button
                 type="button"
-                onClick={() => setExitLogic('AND')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                  exitLogic === 'AND'
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="全部勾選條件皆符合才出場"
+                onClick={() => setIsExitCollapsed(!isExitCollapsed)}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-750 border border-slate-700/90 transition-all cursor-pointer active:scale-95"
+                title={isExitCollapsed ? "展開 7 大出場函式清單" : "收攏 7 大出場函式清單，減少滾動空間"}
               >
-                AND (嚴格交集)
-              </button>
-              <button
-                type="button"
-                onClick={() => setExitLogic('OR')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                  exitLogic === 'OR'
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-                title="任一勾選條件符合即平倉"
-              >
-                OR (靈活聯集)
+                {isExitCollapsed ? (
+                  <>
+                    <ChevronDown size={13} className="text-amber-400" />
+                    <span className="text-[11px]">展開</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronUp size={13} className="text-slate-400" />
+                    <span className="text-[11px]">收攏</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
 
-          <div className="text-[11px] text-slate-400 flex items-center justify-between">
-            <span>邏輯：{exitLogic === 'AND' ? '須同時滿足全部勾選條件才平倉' : '滿足任一勾選條件即出場平倉'}</span>
-            <button
-              onClick={() => setExitConditions(prev => prev.map(c => ({ ...c, enabled: true })))}
-              className="text-amber-400 hover:underline text-[10px]"
+          {isExitCollapsed ? (
+            <div
+              onClick={() => setIsExitCollapsed(false)}
+              className="p-2.5 bg-slate-900/60 hover:bg-slate-900/90 border border-slate-800 hover:border-amber-700/50 rounded-lg cursor-pointer transition-all flex flex-col gap-1.5"
+              title="點擊展開 7 大出場函式清單"
             >
-              全選
-            </button>
-          </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">
+                  邏輯：<strong className="text-amber-400 font-mono">{exitLogic}</strong> (已啟用 {activeExitCount}/7 項)
+                </span>
+                <span className="text-[11px] text-amber-400 flex items-center gap-0.5 font-medium">
+                  點擊展開 <ChevronDown size={12} />
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {exitConditions.filter(c => c.enabled).length === 0 ? (
+                  <span className="text-[11px] text-slate-500 italic">未勾選任何出場條件</span>
+                ) : (
+                  exitConditions.filter(c => c.enabled).map(c => (
+                    <span key={c.id} className="text-[10px] bg-amber-950/70 border border-amber-800/50 text-amber-300 px-1.5 py-0.5 rounded">
+                      {c.name}
+                    </span>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="text-[11px] text-slate-400 flex items-center justify-between">
+                <span>邏輯：{exitLogic === 'AND' ? '須同時滿足全部勾選條件才平倉' : '滿足任一勾選條件即出場平倉'}</span>
+                <button
+                  onClick={() => setExitConditions(prev => prev.map(c => ({ ...c, enabled: true })))}
+                  className="text-amber-400 hover:underline text-[10px]"
+                >
+                  全選
+                </button>
+              </div>
 
-          {/* 7 大出場函式勾選清單 */}
-          <div className="flex flex-col gap-1.5 max-h-[420px] overflow-y-auto pr-1">
-            {exitConditions.map(cond => (
-              <label
-                key={cond.id}
-                className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer border transition-all ${
-                  cond.enabled
-                    ? 'bg-amber-950/20 border-amber-800/60 shadow-xs'
-                    : 'bg-slate-900/40 border-slate-800/70 hover:bg-slate-900/80 hover:border-slate-700'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={cond.enabled}
-                  onChange={e => {
-                    setExitConditions(prev =>
-                      prev.map(c => (c.id === cond.id ? { ...c, enabled: e.target.checked } : c))
-                    );
-                  }}
-                  className="mt-1 rounded border-slate-700 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
-                />
-                <div className="flex flex-col flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-1 flex-wrap">
-                    <span className={`text-xs font-semibold ${cond.enabled ? 'text-amber-300' : 'text-slate-300'}`}>
-                      {cond.name}
-                    </span>
-                    <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-1 rounded">
-                      {cond.type}
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-slate-400 mt-0.5 leading-tight">
-                    {cond.description}
-                  </span>
-                </div>
-              </label>
-            ))}
-          </div>
+              {/* 7 大出場函式勾選清單 */}
+              <div className="flex flex-col gap-1.5 max-h-[420px] overflow-y-auto pr-1">
+                {exitConditions.map(cond => (
+                  <label
+                    key={cond.id}
+                    className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer border transition-all ${
+                      cond.enabled
+                        ? 'bg-amber-950/20 border-amber-800/60 shadow-xs'
+                        : 'bg-slate-900/40 border-slate-800/70 hover:bg-slate-900/80 hover:border-slate-700'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={cond.enabled}
+                      onChange={e => {
+                        setExitConditions(prev =>
+                          prev.map(c => (c.id === cond.id ? { ...c, enabled: e.target.checked } : c))
+                        );
+                      }}
+                      className="mt-1 rounded border-slate-700 text-amber-600 focus:ring-amber-500 w-4 h-4 cursor-pointer"
+                    />
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1 flex-wrap">
+                        <span className={`text-xs font-semibold ${cond.enabled ? 'text-amber-300' : 'text-slate-300'}`}>
+                          {cond.name}
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-1 rounded">
+                          {cond.type}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-400 mt-0.5 leading-tight">
+                        {cond.description}
+                      </span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* 右側：動態風控獨立函式池 (4 欄寬度) */}
-        <div className="lg:col-span-4 flex flex-col gap-3 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80">
-          <div className="flex items-center justify-between border-b border-slate-800/60 pb-2">
+        <div className="lg:col-span-4 flex flex-col gap-3 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 transition-all">
+          <div className="flex items-center justify-between border-b border-slate-800/60 pb-2 flex-wrap gap-2">
             <span className="font-semibold text-sm text-slate-100 flex items-center gap-1.5">
               <ShieldCheck size={16} className="text-purple-400" />
               動態風控獨立函式池
             </span>
-            <span className="text-[10px] text-purple-300 bg-purple-950/70 border border-purple-800/60 px-1.5 py-0.5 rounded">
-              ATR 動態調節
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-purple-300 bg-purple-950/70 border border-purple-800/60 px-1.5 py-0.5 rounded">
+                ATR 動態調節
+              </span>
+              {/* 收攏 / 展開 按鈕 */}
+              <button
+                type="button"
+                onClick={() => setIsRiskCollapsed(!isRiskCollapsed)}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-750 border border-slate-700/90 transition-all cursor-pointer active:scale-95"
+                title={isRiskCollapsed ? "展開動態風控細節" : "收攏動態風控細節"}
+              >
+                {isRiskCollapsed ? (
+                  <>
+                    <ChevronDown size={13} className="text-purple-400" />
+                    <span className="text-[11px]">展開</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronUp size={13} className="text-slate-400" />
+                    <span className="text-[11px]">收攏</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
-          {/* 當前真實 ATR 波動度參考卡片 */}
-          <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1.5 text-slate-300">
-              <Activity size={14} className="text-cyan-400" />
-              <span>當前 ATR(14) 波動度:</span>
-            </div>
-            <div className="text-right">
-              <span className="font-mono font-bold text-cyan-300 text-sm">
-                NT$ {currentAtr.toFixed(2)}
-              </span>
-              <span className="text-[10px] text-slate-400 block">
-                約佔股價 {currentPrice > 0 ? ((currentAtr / currentPrice) * 100).toFixed(1) : 0}%
-              </span>
-            </div>
-          </div>
-
-          {/* 動態風控 1: checkAtrInitialStop */}
-          <div className="flex flex-col gap-1.5 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1">
-                <span className="text-xs font-semibold text-slate-200">checkAtrInitialStop</span>
-                <span className="text-[10px] text-red-400 bg-red-950/60 px-1 rounded">初始停損</span>
+          {isRiskCollapsed ? (
+            <div
+              onClick={() => setIsRiskCollapsed(false)}
+              className="p-2.5 bg-slate-900/60 hover:bg-slate-900/90 border border-slate-800 hover:border-purple-700/50 rounded-lg cursor-pointer transition-all flex flex-col gap-1.5"
+              title="點擊展開動態風控參數"
+            >
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">ATR(14): <strong className="text-cyan-300 font-mono">NT${currentAtr.toFixed(2)}</strong></span>
+                <span className="text-[11px] text-purple-400 flex items-center gap-0.5 font-medium">
+                  點擊展開 <ChevronDown size={12} />
+                </span>
               </div>
-              <span className="text-xs font-mono font-bold text-red-400">
-                {atrInitialStopMultiplier > 0 ? `${atrInitialStopMultiplier}x ATR` : '停用'}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400">
-              停損價 = 進場價格 - (倍數 × 進場日 ATR)。波動大給予寬容度，波動小嚴密截斷虧損。
-            </p>
-            <div className="flex items-center gap-1.5 mt-1">
-              {[0, 1.5, 2.0, 2.5, 3.0].map(val => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => setAtrInitialStopMultiplier(val)}
-                  className={`flex-1 py-1 text-xs rounded font-mono transition-colors ${
-                    atrInitialStopMultiplier === val
-                      ? 'bg-red-700 text-white font-bold'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {val === 0 ? '停用' : `${val}x`}
-                </button>
-              ))}
-            </div>
-            {atrInitialStopMultiplier > 0 && currentAtr > 0 && (
-              <span className="text-[10px] text-slate-400 mt-0.5">
-                以現價計算約折讓 NT$ {(currentAtr * atrInitialStopMultiplier).toFixed(2)} 點
-              </span>
-            )}
-          </div>
-
-          {/* 動態風控 2: checkAtrTrailingStop */}
-          <div className="flex flex-col gap-1.5 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1">
-                <span className="text-xs font-semibold text-slate-200">checkAtrTrailingStop</span>
-                <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-1 rounded">動態移動停利</span>
+              <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
+                <span className="bg-red-950/70 border border-red-800/50 text-red-300 px-1.5 py-0.5 rounded">
+                  初始停損: {atrInitialStopMultiplier > 0 ? `${atrInitialStopMultiplier}x ATR` : '停用'}
+                </span>
+                <span className="bg-emerald-950/70 border border-emerald-800/50 text-emerald-300 px-1.5 py-0.5 rounded">
+                  移動停利: {atrTrailingStopMultiplier > 0 ? `${atrTrailingStopMultiplier}x ATR` : '停用'}
+                </span>
               </div>
-              <span className="text-xs font-mono font-bold text-emerald-400">
-                {atrTrailingStopMultiplier > 0 ? `${atrTrailingStopMultiplier}x ATR` : '停用'}
-              </span>
             </div>
-            <p className="text-[11px] text-slate-400">
-              移動停利價 = 持股期間最高價 - (倍數 × 當前 ATR)。由最高峰回檔鎖住利潤，讓獲利奔馳。
-            </p>
-            <div className="flex items-center gap-1.5 mt-1">
-              {[0, 2.0, 2.5, 3.0, 4.0].map(val => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => setAtrTrailingStopMultiplier(val)}
-                  className={`flex-1 py-1 text-xs rounded font-mono transition-colors ${
-                    atrTrailingStopMultiplier === val
-                      ? 'bg-emerald-700 text-white font-bold'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {val === 0 ? '停用' : `${val}x`}
-                </button>
-              ))}
-            </div>
-            {atrTrailingStopMultiplier > 0 && currentAtr > 0 && (
-              <span className="text-[10px] text-slate-400 mt-0.5">
-                創高後自最高點回撤 NT$ {(currentAtr * atrTrailingStopMultiplier).toFixed(2)} 時鎖利出場
-              </span>
-            )}
-          </div>
+          ) : (
+            <>
+              {/* 當前真實 ATR 波動度參考卡片 */}
+              <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 text-slate-300">
+                  <Activity size={14} className="text-cyan-400" />
+                  <span>當前 ATR(14) 波動度:</span>
+                </div>
+                <div className="text-right">
+                  <span className="font-mono font-bold text-cyan-300 text-sm">
+                    NT$ {currentAtr.toFixed(2)}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block">
+                    約佔股價 {currentPrice > 0 ? ((currentAtr / currentPrice) * 100).toFixed(1) : 0}%
+                  </span>
+                </div>
+              </div>
+
+              {/* 動態風控 1: checkAtrInitialStop */}
+              <div className="flex flex-col gap-1.5 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs font-semibold text-slate-200">checkAtrInitialStop</span>
+                    <span className="text-[10px] text-red-400 bg-red-950/60 px-1 rounded">初始停損</span>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-red-400">
+                    {atrInitialStopMultiplier > 0 ? `${atrInitialStopMultiplier}x ATR` : '停用'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  停損價 = 進場價格 - (倍數 × 進場日 ATR)。波動大給予寬容度，波動小嚴密截斷虧損。
+                </p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  {[0, 1.5, 2.0, 2.5, 3.0].map(val => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setAtrInitialStopMultiplier(val)}
+                      className={`flex-1 py-1 text-xs rounded font-mono transition-colors ${
+                        atrInitialStopMultiplier === val
+                          ? 'bg-red-700 text-white font-bold'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {val === 0 ? '停用' : `${val}x`}
+                    </button>
+                  ))}
+                </div>
+                {atrInitialStopMultiplier > 0 && currentAtr > 0 && (
+                  <span className="text-[10px] text-slate-400 mt-0.5">
+                    以現價計算約折讓 NT$ {(currentAtr * atrInitialStopMultiplier).toFixed(2)} 點
+                  </span>
+                )}
+              </div>
+
+              {/* 動態風控 2: checkAtrTrailingStop */}
+              <div className="flex flex-col gap-1.5 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs font-semibold text-slate-200">checkAtrTrailingStop</span>
+                    <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-1 rounded">動態移動停利</span>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-emerald-400">
+                    {atrTrailingStopMultiplier > 0 ? `${atrTrailingStopMultiplier}x ATR` : '停用'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  移動停利價 = 持股期間最高價 - (倍數 × 當前 ATR)。由最高峰回檔鎖住利潤，讓獲利奔馳。
+                </p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  {[0, 2.0, 2.5, 3.0, 4.0].map(val => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setAtrTrailingStopMultiplier(val)}
+                      className={`flex-1 py-1 text-xs rounded font-mono transition-colors ${
+                        atrTrailingStopMultiplier === val
+                          ? 'bg-emerald-700 text-white font-bold'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {val === 0 ? '停用' : `${val}x`}
+                    </button>
+                  ))}
+                </div>
+                {atrTrailingStopMultiplier > 0 && currentAtr > 0 && (
+                  <span className="text-[10px] text-slate-400 mt-0.5">
+                    創高後自最高點回撤 NT$ {(currentAtr * atrTrailingStopMultiplier).toFixed(2)} 時鎖利出場
+                  </span>
+                )}
+              </div>
+            </>
+          )}
 
           {/* 回測資金與交易費用說明 */}
           <div className="flex flex-col gap-1 text-[11px] bg-slate-900/40 p-2 rounded border border-slate-800/80">

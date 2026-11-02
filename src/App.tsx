@@ -11,7 +11,8 @@ import { TechFundamentalScanner } from './components/TechFundamentalScanner.tsx'
 import { MarketMarginMaintenance } from './components/MarketMarginMaintenance.tsx';
 import { PythonScriptModal } from './components/PythonScriptModal.tsx';
 import { MobileNav, ActiveMobileTab } from './components/MobileNav.tsx';
-import { RefreshCw, TrendingUp, Sparkles, LineChart, Scale } from 'lucide-react';
+import { resolveTaiwanSymbol } from './data/taiwanStocks.ts';
+import { RefreshCw, TrendingUp, Sparkles, LineChart, Scale, Star } from 'lucide-react';
 
 export default function App() {
   // Active Stock State
@@ -52,6 +53,17 @@ export default function App() {
   const [desktopActiveView, setDesktopActiveView] = useState<'trading' | 'fundamentals' | 'margin'>('margin');
   const [activeMobileTab, setActiveMobileTab] = useState<ActiveMobileTab>('margin');
 
+  // Toast notification for user actions
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Helper for matching stock symbols across .TW / .TWO or pure codes
+  const isSymbolMatch = useCallback((s1: string, s2: string) => {
+    if (!s1 || !s2) return false;
+    const r1 = resolveTaiwanSymbol(s1).symbol;
+    const r2 = resolveTaiwanSymbol(s2).symbol;
+    return r1 === r2 || s1.toLowerCase() === s2.toLowerCase();
+  }, []);
+
   // Fetch Watchlist for active stock starring check
   const refreshWatchlist = useCallback(async () => {
     try {
@@ -62,27 +74,54 @@ export default function App() {
 
   useEffect(() => {
     refreshWatchlist();
+
+    const handleExternalUpdate = () => {
+      refreshWatchlist();
+    };
+
+    window.addEventListener('watchlist-changed', handleExternalUpdate);
+    window.addEventListener('storage', handleExternalUpdate);
+    return () => {
+      window.removeEventListener('watchlist-changed', handleExternalUpdate);
+      window.removeEventListener('storage', handleExternalUpdate);
+    };
   }, [refreshWatchlist]);
 
-  const isInWatchlist = userWatchlist.some(w => w.symbol === currentSymbol);
+  const isInWatchlist = useMemo(() => {
+    return userWatchlist.some(w => isSymbolMatch(w.symbol, currentSymbol));
+  }, [userWatchlist, currentSymbol, isSymbolMatch]);
 
   const handleToggleWatchlist = async () => {
     try {
-      if (isInWatchlist) {
-        const found = userWatchlist.find(w => w.symbol === currentSymbol);
+      const resolved = resolveTaiwanSymbol(currentSymbol);
+      const isCurrentlyIn = userWatchlist.some(w => isSymbolMatch(w.symbol, currentSymbol));
+
+      if (isCurrentlyIn) {
+        const found = userWatchlist.find(w => isSymbolMatch(w.symbol, currentSymbol));
         if (found) {
           await deleteWatchlist(found.id);
-          setUserWatchlist(prev => prev.filter(w => w.symbol !== currentSymbol));
+          const updated = userWatchlist.filter(w => !isSymbolMatch(w.symbol, currentSymbol));
+          setUserWatchlist(updated);
+          window.dispatchEvent(new CustomEvent('watchlist-changed', { detail: { action: 'delete', symbol: resolved.symbol } }));
+          setToastMessage(`已自自選池移除「${stockName || resolved.name}」`);
+          setTimeout(() => setToastMessage(null), 2500);
         }
       } else {
+        const currentPrice = quote?.price;
         const res = await addWatchlist({
-          symbol: currentSymbol,
-          name: stockName,
-          market: 'TWSE',
+          symbol: resolved.symbol,
+          name: stockName || resolved.name,
+          market: resolved.market,
+          targetBuyPrice: currentPrice ? Number((currentPrice * 0.96).toFixed(1)).toString() : undefined,
+          targetSellPrice: currentPrice ? Number((currentPrice * 1.12).toFixed(1)).toString() : undefined,
           notes: '快速自選標記',
         });
         if (res.item) {
-          setUserWatchlist(prev => [res.item, ...prev]);
+          const updated = [res.item, ...userWatchlist.filter(w => !isSymbolMatch(w.symbol, currentSymbol))];
+          setUserWatchlist(updated);
+          window.dispatchEvent(new CustomEvent('watchlist-changed', { detail: { action: 'add', item: res.item } }));
+          setToastMessage(`★ 已成功加入自選池：「${stockName || resolved.name}」(${resolved.symbol})`);
+          setTimeout(() => setToastMessage(null), 2500);
         }
       }
     } catch (err) {
@@ -412,6 +451,7 @@ export default function App() {
       {/* Mobile Sticky Bottom Navigation */}
       <MobileNav
         activeTab={activeMobileTab}
+        watchlistCount={userWatchlist.length}
         onChangeTab={(tab) => {
           setActiveMobileTab(tab);
           if (tab === 'fundamentals') setDesktopActiveView('fundamentals');
@@ -419,6 +459,14 @@ export default function App() {
           else setDesktopActiveView('trading');
         }}
       />
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 border border-amber-500/60 text-amber-300 px-4 py-2 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-semibold backdrop-blur-md pointer-events-none transition-all duration-300 animate-in fade-in slide-in-from-top-4">
+          <Star size={14} className="fill-amber-400 text-amber-400 shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
 
       {/* Python Script Export Modal */}
       <PythonScriptModal
