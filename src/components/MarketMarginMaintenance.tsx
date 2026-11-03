@@ -210,7 +210,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
             <div>
               <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                 <h1 className="text-sm sm:text-lg lg:text-xl font-extrabold text-slate-100 tracking-tight">
-                  大盤融資維持率 & 小台散戶多空比
+                  大盤融資維持率 & 微台散戶多空比
                 </h1>
                 <span className="text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -218,7 +218,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
-                臺灣證交所 (TWSE MI_MARGN) 信用交易 · 期交所 (TAIFEX) 小型臺指留倉 · Yahoo 加權指數
+                臺灣證交所 (TWSE MI_MARGN) 信用交易 · 期交所 (TAIFEX) 微型臺指 (TMF) 留倉 · Yahoo 加權指數
               </p>
             </div>
           </div>
@@ -289,14 +289,14 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
               </div>
             </div>
 
-            {/* KPI 3: 小台散戶多空比 (TAIFEX 官方真實數據) */}
+            {/* KPI 3: 微台散戶多空比 (TAIFEX 官方微型臺指 TMF 真實數據) */}
             <div className="bg-slate-950/70 border border-slate-800/90 rounded-lg sm:rounded-xl p-2.5 sm:p-3 flex flex-col justify-between">
               <span className="text-[10px] sm:text-[11px] font-medium text-slate-400 flex items-center justify-between">
                 <span className="flex items-center gap-1">
                   <Users size={11} className="text-purple-400" />
-                  <span>小台散戶多空比</span>
+                  <span>微台散戶多空比</span>
                 </span>
-                <span className="text-[9px] sm:text-[10px] text-purple-400 font-mono">期交所官方</span>
+                <span className="text-[9px] sm:text-[10px] text-purple-400 font-mono">微台 TMF 官方</span>
               </span>
               <div className="mt-1">
                 <div className={`text-base sm:text-2xl font-black font-mono tracking-tight flex items-baseline gap-1 ${
@@ -816,7 +816,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
         </div>
       </div>
 
-      {/* 4. NEW SECTION: 台灣加權指數 & 小台指散戶多空比 · 同步雙軸走勢圖 */}
+      {/* 4. 台灣加權指數 & 微型臺指期貨 (微台 TMF) 散戶多空比 · 同步雙軸走勢圖 */}
       <div
         ref={retailSectionRef}
         className="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl p-2.5 sm:p-4 shadow-xl flex flex-col gap-2 sm:gap-2.5"
@@ -831,10 +831,10 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
               <div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <h3 className="text-xs sm:text-sm lg:text-base font-extrabold text-slate-100 tracking-tight">
-                    加權指數 & 小台散戶多空比
+                    加權指數 & 微台散戶多空比
                   </h3>
                   <span className="text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                    期交所官方真實籌碼
+                    期交所官方微台 (TMF) 真實籌碼
                   </span>
                 </div>
               </div>
@@ -879,11 +879,11 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <span className="w-2.5 h-2 bg-rose-500/80 rounded-xs inline-block" />
-            <span className="text-slate-300 font-medium">散戶偏多 [正值/誘多]</span>
+            <span className="text-slate-300 font-medium">微台散戶偏多 [正值/誘多]</span>
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <span className="w-2.5 h-2 bg-emerald-500/80 rounded-xs inline-block" />
-            <span className="text-slate-300 font-medium">散戶偏空 [負值/軋空]</span>
+            <span className="text-slate-300 font-medium">微台散戶偏空 [負值/軋空]</span>
           </div>
           <div className="flex items-center gap-1 text-slate-400 shrink-0">
             <span className="w-2.5 border-b border-dashed border-slate-400 inline-block" />
@@ -917,7 +917,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                 </span>
               </div>
               <div>
-                <span className="text-slate-400 mr-1">散戶比:</span>
+                <span className="text-slate-400 mr-1">微台散戶比:</span>
                 <span className={`font-mono font-black ${
                   activeRetailPoint.retailRatio > 20
                     ? 'text-rose-400'
@@ -948,7 +948,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
           {isLoading ? (
             <div className="h-52 sm:h-72 lg:h-88 flex flex-col items-center justify-center gap-2 text-slate-400">
               <RefreshCw size={20} className="animate-spin text-purple-500" />
-              <span className="text-xs">載入加權指數與散戶多空比中...</span>
+              <span className="text-xs">載入加權指數與微台散戶多空比中...</span>
             </div>
           ) : error ? (
             <div className="h-52 sm:h-72 lg:h-88 flex flex-col items-center justify-center gap-2 text-rose-400 p-4 text-center">
@@ -1221,13 +1221,13 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                 })()}
               </svg>
               <div className="text-[9px] text-slate-500 text-center py-0.5 sm:hidden font-mono">
-                👆 左右觸控拖動圖表檢視散戶籌碼多空
+                👆 左右觸控拖動圖表檢視微台散戶籌碼多空
               </div>
             </div>
           ) : null}
         </div>
 
-        {/* 頂級操盤手小台散戶多空比實戰解碼指南 (Mobile Collapsible Accordion) */}
+        {/* 頂級操盤手微台 (TMF) 散戶多空比實戰解碼指南 (Mobile Collapsible Accordion) */}
         <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-2 sm:p-3 mt-0.5">
           <button
             onClick={() => setIsTraderGuideOpen(prev => !prev)}
@@ -1235,7 +1235,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
           >
             <div className="flex items-center gap-1.5">
               <Compass size={13} className="text-purple-400" />
-              <span>操盤手小台籌碼實戰操作指引 · 反指標解碼</span>
+              <span>操盤手微台籌碼實戰操作指引 · 反指標解碼</span>
             </div>
             <div className="flex items-center gap-1 text-[10px] text-slate-400">
               <span className="sm:hidden">{isTraderGuideOpen ? '收合' : '點擊展開'}</span>
@@ -1249,30 +1249,30 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
               <div className="bg-slate-900/80 border border-emerald-500/30 rounded-lg p-2 sm:p-2.5">
                 <span className="font-bold text-emerald-400 flex items-center gap-1 text-[11px]">
                   <ArrowUpRight size={12} />
-                  <span>① 主力強勢軋空 (多空比 &lt; -20%)</span>
+                  <span>① 主力強勢軋空 (微台多空比 &lt; -20%)</span>
                 </span>
                 <p className="text-slate-300 text-[10px] sm:text-[11px] mt-1">
-                  當散戶多空比跌破 <strong>-20% 以下</strong>，代表散戶沿路摸頂放空被套。只要散戶不停損、多空比未由負轉正，主力便會維持強勢軋空噴出，切忌盲目摸頂猜高！
+                  微台散戶多空比跌破 <strong>-20% 以下</strong>，代表自然人散戶沿路摸頂放空被套。微台保證金低、自然人參與度最高，只要微台散戶不停損、多空比未由負翻正，主力便會維持強勢軋空噴出，切忌盲目摸頂！
                 </p>
               </div>
 
               <div className="bg-slate-900/80 border border-rose-500/30 rounded-lg p-2 sm:p-2.5">
                 <span className="font-bold text-rose-400 flex items-center gap-1 text-[11px]">
                   <ArrowDownRight size={12} />
-                  <span>② 主力誘多殺多 (多空比 &gt; +20%)</span>
+                  <span>② 主力誘多殺多 (微台多空比 &gt; +20%)</span>
                 </span>
                 <p className="text-slate-300 text-[10px] sm:text-[11px] mt-1">
-                  指數遇阻回檔，散戶多空比卻逆勢飆破 <strong>+20%</strong>，代表散戶盲目抄底接刀。此時主力籌碼占優，極易摜破月線進行「誘多殺多雙斷頭」，切忌盲目開槓桿攤平！
+                  指數遇阻回檔，微台散戶多空比卻逆勢飆破 <strong>+20%</strong>，代表散戶逢回盲目接刀。此時主力法人反手調節，極易摜破支撐進行「誘多殺多雙斷頭」，切忌盲目開高槓桿攤平！
                 </p>
               </div>
 
               <div className="bg-slate-900/80 border border-blue-500/30 rounded-lg p-2 sm:p-2.5">
                 <span className="font-bold text-blue-400 flex items-center gap-1 text-[11px]">
                   <BarChart2 size={12} />
-                  <span>③ 反向背離轉折預警</span>
+                  <span>③ 微台反向背離轉折預警</span>
                 </span>
                 <p className="text-slate-300 text-[10px] sm:text-[11px] mt-1">
-                  若指數創波段新高，但<strong>小台散戶多空比由負轉正急速攀升</strong>（散戶追價作多），常為主力高檔調節警訊；反之，若指數破底但散戶比轉負收斂，常為黃金大底先兆！
+                  微台已取代小台成為散戶資金最集中的溫度計。若指數創波段新高，但<strong>微台散戶多空比由負轉正急速攀升</strong>（散戶亢奮追多），常為主力高檔調節警訊；反之，若指數破底但散戶比轉負收斂，常為波段黃金大底先兆！
                 </p>
               </div>
             </div>

@@ -1,5 +1,6 @@
 import { StockQuote, CandleData, WatchlistItem, MarketMarginSummary } from '../types/stock.ts';
 import { MarketHeatmapResponse } from '../types/marketHeatmap.ts';
+import { Top300MarketCapResponse } from '../types/top300.ts';
 import { CompanyIntelReport } from '../types/companyIntel.ts';
 import { generateCompanyIntelFallback } from '../data/companyIntelData.ts';
 import { TaiwanStockInfo, POPULAR_TAIWAN_STOCKS, resolveTaiwanSymbol, searchTaiwanStocks } from '../data/taiwanStocks.ts';
@@ -541,5 +542,22 @@ export async function fetchCompanyIntel(symbol: string, refresh: boolean = false
   return generateCompanyIntelFallback(resolved.symbol);
 }
 
-
-
+/**
+ * 撈取臺灣證券交易所 (TWSE) 與櫃買中心 (TPEx) 官方市值前 300 大上市櫃公司清單與真實行情
+ */
+export async function fetchTop300MarketCapStocks(forceRefresh: boolean = false): Promise<Top300MarketCapResponse | null> {
+  try {
+    const params = new URLSearchParams();
+    if (forceRefresh) params.set('refresh', '1');
+    const res = await fetch(`/api/stocks/top300-market-cap?${params.toString()}`);
+    if (res.ok && isJsonResponse(res)) {
+      const data: Top300MarketCapResponse = await res.json();
+      if (data && Array.isArray(data.stocks) && data.stocks.length > 0) {
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn('[API] fetchTop300MarketCapStocks network error:', err);
+  }
+  return null;
+}

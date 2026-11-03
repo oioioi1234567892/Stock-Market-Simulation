@@ -22,6 +22,7 @@ import {
   Sliders,
   Check,
   Info,
+  Crown,
 } from 'lucide-react';
 import {
   TopSectorVolumeInfo,
@@ -38,6 +39,7 @@ import { loadStrategyFromCookie } from '../utils/cookieStorage.ts';
 import { StrategyStockDetailModal } from './StrategyStockDetailModal.tsx';
 import { IndustryHeatmap } from './IndustryHeatmap.tsx';
 import { TopSectorStocksKLineViewer } from './TopSectorStocksKLineViewer.tsx';
+import { Top300MarketCapStrategyScanner } from './Top300MarketCapStrategyScanner.tsx';
 import { fetchVolumeBreakoutScan } from '../services/api.ts';
 
 interface TechFundamentalScannerProps {
@@ -54,8 +56,8 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
-  // 主頁面導航分頁 (1: 🔥 五大動能產業 · 自訂策略選股 & 近3個月K線圖, 2: 🗺️ 35大產業全市場熱力圖)
-  const [activeMainTab, setActiveMainTab] = useState<'strategyScreen' | 'heatmap'>('strategyScreen');
+  // 主頁面導航分頁 (1: 👑 市值前300大 · 量化回測策略掃描, 2: 🔥 五大動能產業 · 自訂策略選股, 3: 🗺️ 35大產業全市場熱力圖)
+  const [activeMainTab, setActiveMainTab] = useState<'top300' | 'strategyScreen' | 'heatmap'>('top300');
 
   // 使用者自訂回測策略 (優先使用 prop，否則讀取 cookie 或預設)
   const currentStrategy = useMemo<StrategyConfig>(() => {
@@ -165,7 +167,11 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <h2 className="text-xs sm:text-sm font-black text-slate-100 font-mono tracking-tight">
-            熱力圖 TOP 5 產業 · 策略選股
+            {activeMainTab === 'top300'
+              ? '👑 市值前 300 大 · 量化策略掃描'
+              : activeMainTab === 'strategyScreen'
+              ? '🔥 熱力圖 TOP 5 產業 · 策略選股'
+              : '🗺️ 全市場 35 產業熱力圖'}
           </h2>
           <span className="text-[10px] text-slate-500 font-mono">
             更新時間 {lastUpdated.toLocaleTimeString('zh-TW', { hour12: false })}
@@ -173,8 +179,19 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
-          {/* 2 大主功能分頁切換列 */}
+          {/* 3 大主功能分頁切換列 */}
           <div className="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-xs">
+            <button
+              onClick={() => setActiveMainTab('top300')}
+              className={`px-2.5 py-1 rounded-md font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                activeMainTab === 'top300'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Crown size={12} className={activeMainTab === 'top300' ? 'text-amber-300' : 'text-amber-400'} />
+              <span>市值前300大</span>
+            </button>
             <button
               onClick={() => setActiveMainTab('strategyScreen')}
               className={`px-2.5 py-1 rounded-md font-bold flex items-center gap-1 transition-all cursor-pointer ${
@@ -241,7 +258,18 @@ export const TechFundamentalScanner: React.FC<TechFundamentalScannerProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 分頁 1: 🔥 五大熱門產業 · 自訂策略選股 & 企業生命週期分析                    */}
+      {/* 分頁 1: 👑 市值前 300 大公司 · K 線圖 & 量化回測交易狀態掃描                 */}
+      {/* ========================================================================= */}
+      {activeMainTab === 'top300' && (
+        <Top300MarketCapStrategyScanner
+          onSelectStockForChart={onSelectStockForChart}
+          userStrategy={currentStrategy}
+          onOpenStockDetail={(stk) => setDetailStock(stk)}
+        />
+      )}
+
+      {/* ========================================================================= */}
+      {/* 分頁 2: 🔥 五大熱門產業 · 自訂策略選股 & 企業生命週期分析                    */}
       {/* ========================================================================= */}
       {activeMainTab === 'strategyScreen' && (
         <div className="flex flex-col gap-4 w-full">
