@@ -28,7 +28,6 @@ import {
   Sliders,
   AlertCircle,
   Clock,
-  Compass,
   Zap,
 } from 'lucide-react';
 
@@ -462,71 +461,75 @@ export const Top300MarketCapStrategyScanner: React.FC<Top300MarketCapStrategySca
           </div>
         </div>
 
-        {/* 2. 交易狀態快速篩選標籤 (Core Transaction Status Filters: 買入/賣出/持有/觀望) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+        {/* 2. 交易狀態快速篩選標籤 (簡化為：全部、買入、賣出、持有、觀望，5欄自適應無橫向卷軸) */}
+        <div className="grid grid-cols-5 gap-1 sm:gap-1.5 w-full select-none py-0.5">
           {/* 全部 */}
           <button
             onClick={() => setSelectedSignalFilter('ALL')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+            className={`py-1.5 px-0.5 sm:px-2 rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 text-center truncate ${
               selectedSignalFilter === 'ALL'
                 ? 'bg-blue-600 text-white shadow-xs'
                 : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-900'
             }`}
           >
-            <Compass size={12} />
-            <span>全部標的 ({signalCounts.ALL})</span>
+            <span>全部</span>
+            <span className="text-[9px] sm:text-[10px] opacity-80 font-mono">({signalCounts.ALL})</span>
           </button>
 
-          {/* 🔴 買入訊號 (BUY) */}
+          {/* 買入 */}
           <button
             onClick={() => setSelectedSignalFilter('BUY')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+            className={`py-1.5 px-0.5 sm:px-2 rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 text-center truncate ${
               selectedSignalFilter === 'BUY'
                 ? 'bg-rose-600 text-white shadow-xs ring-1 ring-rose-400'
                 : 'bg-rose-950/30 border border-rose-800/50 text-rose-300 hover:bg-rose-900/40'
             }`}
           >
-            <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping inline-block" />
-            <span>🔴 買入訊號 ({signalCounts.BUY})</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0 inline-block" />
+            <span>買入</span>
+            <span className="text-[9px] sm:text-[10px] font-mono">({signalCounts.BUY})</span>
           </button>
 
-          {/* 🟡 賣出訊號 (SELL) */}
+          {/* 賣出 */}
           <button
             onClick={() => setSelectedSignalFilter('SELL')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+            className={`py-1.5 px-0.5 sm:px-2 rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 text-center truncate ${
               selectedSignalFilter === 'SELL'
                 ? 'bg-amber-600 text-white shadow-xs ring-1 ring-amber-400'
                 : 'bg-amber-950/30 border border-amber-800/50 text-amber-300 hover:bg-amber-900/40'
             }`}
           >
-            <AlertCircle size={12} className="text-amber-400" />
-            <span>🟡 賣出訊號 ({signalCounts.SELL})</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 inline-block" />
+            <span>賣出</span>
+            <span className="text-[9px] sm:text-[10px] font-mono">({signalCounts.SELL})</span>
           </button>
 
-          {/* 🟢 持倉續抱 (HOLD) */}
+          {/* 持有 */}
           <button
             onClick={() => setSelectedSignalFilter('HOLD')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+            className={`py-1.5 px-0.5 sm:px-2 rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 text-center truncate ${
               selectedSignalFilter === 'HOLD'
                 ? 'bg-emerald-600 text-white shadow-xs ring-1 ring-emerald-400'
                 : 'bg-emerald-950/30 border border-emerald-800/50 text-emerald-300 hover:bg-emerald-900/40'
             }`}
           >
-            <CheckCircle2 size={12} className="text-emerald-400" />
-            <span>🟢 持倉續抱 ({signalCounts.HOLD})</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 inline-block" />
+            <span>持有</span>
+            <span className="text-[9px] sm:text-[10px] font-mono">({signalCounts.HOLD})</span>
           </button>
 
-          {/* ⚪ 空手觀望 (WAIT) */}
+          {/* 觀望 */}
           <button
             onClick={() => setSelectedSignalFilter('WAIT')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+            className={`py-1.5 px-0.5 sm:px-2 rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 text-center truncate ${
               selectedSignalFilter === 'WAIT'
                 ? 'bg-slate-700 text-white shadow-xs'
                 : 'bg-slate-950 border border-slate-800 text-slate-400 hover:bg-slate-900'
             }`}
           >
-            <Clock size={12} className="text-slate-400" />
-            <span>⚪ 空手觀望 ({signalCounts.WAIT})</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0 inline-block" />
+            <span>觀望</span>
+            <span className="text-[9px] sm:text-[10px] font-mono">({signalCounts.WAIT})</span>
           </button>
         </div>
 

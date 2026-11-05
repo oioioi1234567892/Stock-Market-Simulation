@@ -365,5 +365,7 @@ export interface InstitutionalDailyRecord {
   dealerSellLots?: number; // 自營商賣出 (張)
   closePrice?: number;
   changePercent?: number;
+  isRealOfficialData?: boolean;
+  dataSource?: string;
 }
 
