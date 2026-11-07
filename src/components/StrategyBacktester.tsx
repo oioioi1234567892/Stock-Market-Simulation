@@ -422,16 +422,16 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
         </div>
       </div>
 
-      {/* 核心策略參數配置區 (8進場 + 7出場 + 動態風控) */}
+      {/* 核心策略參數配置區 (9進場 + 7出場 + 動態風控) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* 左側：8 大進場獨立函式池 (5 欄寬度) */}
+        {/* 左側：進場獨立函式池 (5 欄寬度) */}
         <div className="lg:col-span-4 flex flex-col gap-2.5 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800/80 transition-all">
           <div className="flex items-center justify-between border-b border-slate-800/60 pb-2 flex-wrap gap-2">
             <div className="flex items-center gap-1.5">
               <TrendingUp size={16} className="text-emerald-400" />
-              <span className="font-semibold text-sm text-slate-100">8 大進場獨立函式池</span>
+              <span className="font-semibold text-sm text-slate-100">{entryConditions.length} 大進場獨立函式池</span>
               <span className="text-[11px] px-1.5 py-0.2 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/60 font-mono">
-                {activeEntryCount}/8
+                {activeEntryCount}/{entryConditions.length}
               </span>
             </div>
 
@@ -469,7 +469,7 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
                 type="button"
                 onClick={() => setIsEntryCollapsed(!isEntryCollapsed)}
                 className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/90 hover:bg-slate-750 border border-slate-700/90 transition-all cursor-pointer active:scale-95"
-                title={isEntryCollapsed ? "展開 8 大進場函式清單" : "收攏 8 大進場函式清單，減少滾動空間"}
+                title={isEntryCollapsed ? `展開 ${entryConditions.length} 大進場函式清單` : `收攏 ${entryConditions.length} 大進場函式清單，減少滾動空間`}
               >
                 {isEntryCollapsed ? (
                   <>
@@ -490,11 +490,11 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
             <div
               onClick={() => setIsEntryCollapsed(false)}
               className="p-2.5 bg-slate-900/60 hover:bg-slate-900/90 border border-slate-800 hover:border-emerald-700/50 rounded-lg cursor-pointer transition-all flex flex-col gap-1.5"
-              title="點擊展開 8 大進場函式清單"
+              title={`點擊展開 ${entryConditions.length} 大進場函式清單`}
             >
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">
-                  邏輯：<strong className="text-emerald-400 font-mono">{entryLogic}</strong> (已啟用 {activeEntryCount}/8 項)
+                  邏輯：<strong className="text-emerald-400 font-mono">{entryLogic}</strong> (已啟用 {activeEntryCount}/{entryConditions.length} 項)
                 </span>
                 <span className="text-[11px] text-emerald-400 flex items-center gap-0.5 font-medium">
                   點擊展開 <ChevronDown size={12} />
@@ -524,7 +524,7 @@ export const StrategyBacktester: React.FC<StrategyBacktesterProps> = ({
                 </button>
               </div>
 
-              {/* 8 大進場函式勾選清單 */}
+              {/* 進場函式勾選清單 */}
               <div className="flex flex-col gap-1.5 max-h-[420px] overflow-y-auto pr-1">
                 {entryConditions.map(cond => (
                   <label

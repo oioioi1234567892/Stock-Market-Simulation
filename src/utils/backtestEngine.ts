@@ -11,7 +11,7 @@ import {
 } from '../types/stock.ts';
 
 // =========================================================================
-// 8 大進場獨立函式池 (8 Independent Entry Functions)
+// 9 大進場獨立函式池 (9 Independent Entry Functions)
 // =========================================================================
 
 /**
@@ -105,6 +105,18 @@ export function checkCloseAboveMa20(candles: CandleData[], i: number): boolean {
   const curr = candles[i];
   if (curr.ma20 === undefined) return false;
   return curr.close > curr.ma20;
+}
+
+/**
+ * 9. 月均線斜率>0 (MA20 向上揚升)
+ * 當日 20 日均線數值高於前一日 20 日均線 (MA20[i] > MA20[i-1]，生命線斜率大於0向上翻揚)
+ */
+export function checkMa20SlopeUp(candles: CandleData[], i: number): boolean {
+  if (i < 1) return false;
+  const curr = candles[i];
+  const prev = candles[i - 1];
+  if (curr.ma20 === undefined || prev.ma20 === undefined) return false;
+  return curr.ma20 > prev.ma20;
 }
 
 // =========================================================================
@@ -389,7 +401,7 @@ export function runBacktest(
         });
       }
     } else {
-      // 8 大進場獨立函式池檢查 (支援 AND / OR 邏輯運算)
+      // 9 大進場獨立函式池檢查 (支援 AND / OR 邏輯運算)
       const activeEntryConditions = entryConditions.filter(c => c.enabled);
       if (activeEntryConditions.length > 0) {
         const entryCheckResults = activeEntryConditions.map(cond => {
@@ -402,6 +414,7 @@ export function runBacktest(
             case 'checkBreakout30dHigh': return checkBreakout30dHigh(candles, i);
             case 'checkVolumeSpike': return checkVolumeSpike(candles, i);
             case 'checkCloseAboveMa20': return checkCloseAboveMa20(candles, i);
+            case 'checkMa20SlopeUp': return checkMa20SlopeUp(candles, i);
             default: return false;
           }
         });
@@ -617,6 +630,13 @@ export const DEFAULT_ENTRY_CONDITIONS: EntryCondition[] = [
     name: '股價站上MA20 (月線生命線)',
     description: '收盤價穩固站在 20 日月線生命線之上',
     enabled: true,
+  },
+  {
+    id: 'entry-9',
+    type: 'checkMa20SlopeUp',
+    name: '月均線斜率>0 (MA20翻揚)',
+    description: '當日 20 日月線數值高於前一日 (MA20[t] > MA20[t-1]，生命線斜率翻揚向上走升)',
+    enabled: false,
   },
 ];
 

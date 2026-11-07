@@ -51,7 +51,8 @@ export type EntryConditionType =
   | 'checkRsiEntry'
   | 'checkBreakout30dHigh'
   | 'checkVolumeSpike'
-  | 'checkCloseAboveMa20';
+  | 'checkCloseAboveMa20'
+  | 'checkMa20SlopeUp';
 
 export interface EntryCondition {
   id: string;
@@ -343,6 +344,15 @@ export interface MarketMarginSummary {
   historicalLowRatio: number;
   dataSource?: string;
   isRealData?: boolean;
+  officialTwseDetails?: {
+    belowAccNum: number;
+    callAccNum: number;
+    callAmtYi: number;
+    exeAccNum: number;
+    exeAmtYi: number;
+    crdAmtYi: number;
+    keepRateDate: string;
+  };
   marginStats?: {
     buyYi: number;
     sellYi: number;

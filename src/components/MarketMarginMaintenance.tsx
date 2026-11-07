@@ -164,13 +164,12 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!chartSvgRef.current || !data || !data.series || data.series.length === 0) return;
     const rect = chartSvgRef.current.getBoundingClientRect();
-    const offsetX = e.clientX - rect.left;
-    const width = rect.width;
-    const paddingLeft = 48;
-    const paddingRight = 44;
-    const plotWidth = width - paddingLeft - paddingRight;
-    if (plotWidth <= 0) return;
-    const ratio = Math.max(0, Math.min(1, (offsetX - paddingLeft) / plotWidth));
+    if (!rect.width) return;
+    const svgX = ((e.clientX - rect.left) / rect.width) * 900;
+    const pLeft = 56;
+    const pRight = 48;
+    const plotW = 900 - pLeft - pRight;
+    const ratio = Math.max(0, Math.min(1, (svgX - pLeft) / plotW));
     const targetIdx = Math.round(ratio * (data.series.length - 1));
     setActiveIndex(Math.max(0, Math.min(data.series.length - 1, targetIdx)));
   };
@@ -183,13 +182,12 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
   const handleRetailPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!retailChartSvgRef.current || !data || !data.series || data.series.length === 0) return;
     const rect = retailChartSvgRef.current.getBoundingClientRect();
-    const offsetX = e.clientX - rect.left;
-    const width = rect.width;
-    const paddingLeft = 48;
-    const paddingRight = 44;
-    const plotWidth = width - paddingLeft - paddingRight;
-    if (plotWidth <= 0) return;
-    const ratio = Math.max(0, Math.min(1, (offsetX - paddingLeft) / plotWidth));
+    if (!rect.width) return;
+    const svgX = ((e.clientX - rect.left) / rect.width) * 900;
+    const pLeft = 56;
+    const pRight = 48;
+    const plotW = 900 - pLeft - pRight;
+    const ratio = Math.max(0, Math.min(1, (svgX - pLeft) / plotW));
     const targetIdx = Math.round(ratio * (data.series.length - 1));
     setActiveRetailIndex(Math.max(0, Math.min(data.series.length - 1, targetIdx)));
   };
@@ -262,11 +260,11 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
               </div>
             </div>
 
-            {/* KPI 2: 大盤融資維持率 */}
+            {/* KPI 2: 大盤融資維持率 (TWSE BFIJ3U 官方全市場擔保維持率) */}
             <div className="bg-slate-950/70 border border-slate-800/90 rounded-lg sm:rounded-xl p-2.5 sm:p-3 flex flex-col justify-between">
               <span className="text-[10px] sm:text-[11px] font-medium text-slate-400 flex items-center justify-between">
-                <span>融資維持率</span>
-                <span className="text-[9px] sm:text-[10px] text-slate-500">基準 166.7%</span>
+                <span>大盤擔保維持率</span>
+                <span className="text-[9px] sm:text-[10px] text-emerald-400 font-mono">TWSE官方結算</span>
               </span>
               <div className="mt-1">
                 <div className={`text-base sm:text-2xl font-black font-mono tracking-tight ${
@@ -278,7 +276,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                     ? 'text-purple-400'
                     : 'text-emerald-400'
                 }`}>
-                  {data.currentMaintenanceRatio.toFixed(1)}%
+                  {data.currentMaintenanceRatio.toFixed(2)}%
                 </div>
                 <div className={`text-[10px] sm:text-xs font-bold font-mono flex items-center gap-1 mt-0.5 ${
                   data.ratioChange >= 0 ? 'text-rose-400' : 'text-emerald-400'
@@ -369,7 +367,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
               <span>大盤融資維持率水位刻度</span>
             </h2>
             <span className="text-[10px] sm:text-[11px] text-slate-400 font-mono">
-              當前：<strong className="text-slate-100 font-bold">{data.currentMaintenanceRatio.toFixed(1)}%</strong>
+              當前：<strong className="text-slate-100 font-bold">{data.currentMaintenanceRatio.toFixed(2)}%</strong>
             </span>
           </div>
 
@@ -385,7 +383,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                   style={{ left: `${leftPct}%` }}
                 >
                   <span className="px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] font-black font-mono bg-white text-slate-950 shadow-md whitespace-nowrap">
-                    {data.currentMaintenanceRatio.toFixed(1)}%
+                    {data.currentMaintenanceRatio.toFixed(2)}%
                   </span>
                   <div className="w-0 h-0 border-x-3.5 border-x-transparent border-t-3.5 border-t-white" />
                 </div>
@@ -411,6 +409,38 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
               <span className="text-slate-400">180%+</span>
             </div>
           </div>
+
+          {/* 臺灣證券交易所 (TWSE BFIJ3U) 官方真實信用違約與處分統計 */}
+          {data.officialTwseDetails && (
+            <div className="mt-3 pt-2.5 border-t border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-lg p-2 flex flex-col">
+                <span className="text-slate-400 text-[10px]">低於130%警戒戶數</span>
+                <span className="text-amber-400 font-bold text-xs sm:text-sm mt-0.5">
+                  {data.officialTwseDetails.belowAccNum.toLocaleString()} 戶
+                </span>
+              </div>
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-lg p-2 flex flex-col">
+                <span className="text-slate-400 text-[10px]">融資追繳戶數 (金額)</span>
+                <span className="text-amber-300 font-bold text-xs sm:text-sm mt-0.5">
+                  {data.officialTwseDetails.callAccNum.toLocaleString()} 戶
+                  <span className="text-[10px] text-slate-400 font-normal ml-1">({data.officialTwseDetails.callAmtYi}億)</span>
+                </span>
+              </div>
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-lg p-2 flex flex-col">
+                <span className="text-slate-400 text-[10px]">斷頭強制處分戶數</span>
+                <span className="text-rose-400 font-bold text-xs sm:text-sm mt-0.5">
+                  {data.officialTwseDetails.exeAccNum.toLocaleString()} 戶
+                  <span className="text-[10px] text-slate-400 font-normal ml-1">({data.officialTwseDetails.exeAmtYi}億)</span>
+                </span>
+              </div>
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-lg p-2 flex flex-col">
+                <span className="text-slate-400 text-[10px]">信用成交總金額</span>
+                <span className="text-blue-300 font-bold text-xs sm:text-sm mt-0.5">
+                  {data.officialTwseDetails.crdAmtYi.toLocaleString()} 億元
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -428,7 +458,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                 加權指數 & 大盤融資維持率
               </h3>
               <span className="text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                TWSE官方信用交易直連
+                TWSE官方擔保維持率 (BFIJ3U直連)
               </span>
             </div>
 
@@ -512,7 +542,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                     ? 'text-purple-400'
                     : 'text-amber-300'
                 }`}>
-                  {activePoint.marginMaintenanceRatio.toFixed(1)}%
+                  {activePoint.marginMaintenanceRatio.toFixed(2)}%
                 </span>
               </div>
               <div className="hidden xs:block">
@@ -540,7 +570,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
               <svg
                 ref={chartSvgRef}
                 viewBox="0 0 900 340"
-                className="w-full h-52 sm:h-72 lg:h-88 touch-none"
+                className="w-full h-56 sm:h-72 lg:h-88 touch-none select-none cursor-crosshair"
                 onPointerDown={(e) => {
                   try {
                     e.currentTarget.setPointerCapture(e.pointerId);
@@ -558,20 +588,23 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
               >
                 <defs>
                   <linearGradient id="taiexGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.22" />
-                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.0" />
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.25" />
+                    <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.01" />
                   </linearGradient>
                   <linearGradient id="dangerZoneGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.16" />
-                    <stop offset="100%" stopColor="#f43f5e" stopOpacity="0.01" />
+                    <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.18" />
+                    <stop offset="100%" stopColor="#f43f5e" stopOpacity="0.02" />
                   </linearGradient>
+                  <filter id="amberGlow" x="-10%" y="-10%" width="120%" height="120%">
+                    <feDropShadow dx="0" dy="0" stdDeviation="1.5" floodColor="#f59e0b" floodOpacity="0.55" />
+                  </filter>
                 </defs>
 
                 {(() => {
                   const { count, yTaiexMin, yTaiexMax, yRatioMin, yRatioMax } = chartMetrics;
                   const series = data.series;
-                  const pLeft = 48;
-                  const pRight = 44;
+                  const pLeft = 56;
+                  const pRight = 48;
                   const pTop = 24;
                   const pBottom = 28;
                   const svgW = 900;
@@ -633,6 +666,7 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                   const activeYTaiex = getYTaiex(series[curIdx].taiexClose);
                   const activeYRatio = getYRatio(series[curIdx].marginMaintenanceRatio);
 
+
                   return (
                     <g>
                       {y130 < pTop + plotH && (
@@ -670,10 +704,10 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                             stroke="#f43f5e"
                             strokeWidth="1.2"
                             strokeDasharray="5 3"
-                            opacity="0.85"
+                            opacity="0.9"
                           />
-                          <text x={pLeft + 4} y={y130 - 3} fill="#f43f5e" fontSize="9" fontWeight="bold" fontFamily="monospace">
-                            130% 斷頭線
+                          <text x={pLeft + 6} y={y130 - 4} fill="#f43f5e" fontSize="9" fontWeight="bold" fontFamily="monospace">
+                            130% 斷頭警戒線
                           </text>
                         </g>
                       )}
@@ -689,10 +723,10 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                             stroke="#f59e0b"
                             strokeWidth="1"
                             strokeDasharray="4 4"
-                            opacity="0.8"
+                            opacity="0.85"
                           />
-                          <text x={pLeft + 4} y={y140 - 3} fill="#f59e0b" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
-                            140% 追繳線
+                          <text x={pLeft + 6} y={y140 - 4} fill="#f59e0b" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
+                            140% 追繳警戒線
                           </text>
                         </g>
                       )}
@@ -722,37 +756,37 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                             stroke="#c084fc"
                             strokeWidth="1"
                             strokeDasharray="4 4"
-                            opacity="0.8"
+                            opacity="0.85"
                           />
-                          <text x={pLeft + 4} y={y170 - 3} fill="#c084fc" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
-                            170% 過熱線
+                          <text x={pLeft + 6} y={y170 - 4} fill="#c084fc" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
+                            170% 過熱超買線
                           </text>
                         </g>
                       )}
 
                       {/* Left Y-axis labels: TAIEX */}
-                      <text x={pLeft - 5} y={pTop + 4} textAnchor="end" fill="#3b82f6" fontSize="9" fontWeight="bold" fontFamily="monospace">
+                      <text x={pLeft - 6} y={pTop + 4} textAnchor="end" fill="#3b82f6" fontSize="9" fontWeight="bold" fontFamily="monospace">
                         {yTaiexMax.toLocaleString()}
                       </text>
                       {horizontalGrids.map((g, i) => (
-                        <text key={i} x={pLeft - 5} y={g.y + 3} textAnchor="end" fill="#64748b" fontSize="8" fontFamily="monospace">
+                        <text key={i} x={pLeft - 6} y={g.y + 3} textAnchor="end" fill="#64748b" fontSize="8" fontFamily="monospace">
                           {Math.round(g.valTaiex).toLocaleString()}
                         </text>
                       ))}
-                      <text x={pLeft - 5} y={pTop + plotH} textAnchor="end" fill="#3b82f6" fontSize="9" fontWeight="bold" fontFamily="monospace">
+                      <text x={pLeft - 6} y={pTop + plotH} textAnchor="end" fill="#3b82f6" fontSize="9" fontWeight="bold" fontFamily="monospace">
                         {yTaiexMin.toLocaleString()}
                       </text>
 
                       {/* Right Y-axis labels: Ratio % */}
-                      <text x={pLeft + plotW + 5} y={pTop + 4} textAnchor="start" fill="#fbbf24" fontSize="9" fontWeight="bold" fontFamily="monospace">
+                      <text x={pLeft + plotW + 6} y={pTop + 4} textAnchor="start" fill="#fbbf24" fontSize="9" fontWeight="bold" fontFamily="monospace">
                         {yRatioMax}%
                       </text>
                       {horizontalGrids.map((g, i) => (
-                        <text key={i} x={pLeft + plotW + 5} y={g.y + 3} textAnchor="start" fill="#64748b" fontSize="8" fontFamily="monospace">
+                        <text key={i} x={pLeft + plotW + 6} y={g.y + 3} textAnchor="start" fill="#64748b" fontSize="8" fontFamily="monospace">
                           {g.valRatio.toFixed(0)}%
                         </text>
                       ))}
-                      <text x={pLeft + plotW + 5} y={pTop + plotH} textAnchor="start" fill="#fbbf24" fontSize="9" fontWeight="bold" fontFamily="monospace">
+                      <text x={pLeft + plotW + 6} y={pTop + plotH} textAnchor="start" fill="#fbbf24" fontSize="9" fontWeight="bold" fontFamily="monospace">
                         {yRatioMin}%
                       </text>
 
@@ -760,8 +794,8 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                       <path d={taiexAreaD} fill="url(#taiexGradient)" />
                       <path d={taiexLineD} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
 
-                      {/* Path 2: Margin Ratio Line (Amber) */}
-                      <path d={ratioLineD} fill="none" stroke="#f59e0b" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                      {/* Path 2: Margin Ratio Line (Amber with subtle glow) */}
+                      <path d={ratioLineD} fill="none" stroke="#fbbf24" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" filter="url(#amberGlow)" />
 
                       {/* X-axis baseline */}
                       <line x1={pLeft} y1={pTop + plotH} x2={pLeft + plotW} y2={pTop + plotH} stroke="#334155" strokeWidth="1" />
@@ -795,22 +829,19 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
 
                       {/* Active Dots on Paths */}
                       <circle cx={activeX} cy={activeYTaiex} r="4" fill="#3b82f6" stroke="#ffffff" strokeWidth="1.8" />
-                      <circle cx={activeX} cy={activeYRatio} r="4.5" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.8" />
+                      <circle cx={activeX} cy={activeYRatio} r="4.5" fill="#fbbf24" stroke="#ffffff" strokeWidth="2" />
 
                       {/* Floating In-Chart Tooltip Capsule */}
-                      <g transform={`translate(${Math.max(pLeft + 50, Math.min(pLeft + plotW - 50, activeX))}, ${pTop + 10})`}>
-                        <rect x="-46" y="-9" width="92" height="18" rx="4" fill="#0f172a" fillOpacity="0.92" stroke="#334155" strokeWidth="0.8" />
-                        <text x="0" y="3.5" textAnchor="middle" fill="#f8fafc" fontSize="8.5" fontWeight="bold" fontFamily="monospace">
-                          {series[curIdx].taiexClose.toLocaleString()} / {series[curIdx].marginMaintenanceRatio.toFixed(1)}%
+                      <g transform={`translate(${Math.max(pLeft + 72, Math.min(pLeft + plotW - 72, activeX))}, ${pTop + 14})`}>
+                        <rect x="-70" y="-12" width="140" height="24" rx="5" fill="#020617" fillOpacity="0.95" stroke="#334155" strokeWidth="1" />
+                        <text x="0" y="3.5" textAnchor="middle" fill="#f8fafc" fontSize="9" fontWeight="bold" fontFamily="monospace">
+                          {series[curIdx].date.slice(5)} · {series[curIdx].taiexClose.toLocaleString()} / {series[curIdx].marginMaintenanceRatio.toFixed(2)}%
                         </text>
                       </g>
                     </g>
                   );
                 })()}
               </svg>
-              <div className="text-[9px] text-slate-500 text-center py-0.5 sm:hidden font-mono">
-                👆 左右觸控拖動圖表檢視歷史點位
-              </div>
             </div>
           ) : null}
         </div>
@@ -1220,9 +1251,6 @@ export const MarketMarginMaintenance: React.FC<MarketMarginMaintenanceProps> = (
                   );
                 })()}
               </svg>
-              <div className="text-[9px] text-slate-500 text-center py-0.5 sm:hidden font-mono">
-                👆 左右觸控拖動圖表檢視微台散戶籌碼多空
-              </div>
             </div>
           ) : null}
         </div>

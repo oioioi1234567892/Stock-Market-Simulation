@@ -114,6 +114,14 @@ export function loadStrategyFromCookie(
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && parsed.name) {
+          if (Array.isArray(parsed.entryConditions)) {
+            const existingTypes = new Set(parsed.entryConditions.map((c: any) => c.type));
+            defaultEntryConditions.forEach(d => {
+              if (!existingTypes.has(d.type)) {
+                parsed.entryConditions.push({ ...d });
+              }
+            });
+          }
           return parsed as StrategyConfig;
         }
       }

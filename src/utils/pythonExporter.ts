@@ -74,7 +74,7 @@ low_close = (df['Low'] - df['Close'].shift()).abs()
 tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
 df['ATR'] = tr.rolling(window=14).mean()
 
-# 3. 獨立函式池 (8 大進場 + 7 大出場 + 動態風控)
+# 3. 獨立函式池 (9 大進場 + 7 大出場 + 動態風控)
 
 def check_ma_golden_cross(df, i):
     return df['MA5'].iloc[i-1] <= df['MA20'].iloc[i-1] and df['MA5'].iloc[i] > df['MA20'].iloc[i]
@@ -103,6 +103,10 @@ def check_volume_spike(df, i):
 
 def check_close_above_ma20(df, i):
     return df['Close'].iloc[i] > df['MA20'].iloc[i]
+
+def check_ma20_slope_up(df, i):
+    if i < 1: return False
+    return df['MA20'].iloc[i] > df['MA20'].iloc[i-1]
 
 # 7 大出場函式
 def check_ma_death_cross(df, i):
@@ -175,6 +179,7 @@ func_map = {
     'checkBreakout30dHigh': check_breakout_30d_high,
     'checkVolumeSpike': check_volume_spike,
     'checkCloseAboveMa20': check_close_above_ma20,
+    'checkMa20SlopeUp': check_ma20_slope_up,
     'checkMaDeathCross': check_ma_death_cross,
     'checkKdDeathCross': check_kd_death_cross,
     'checkMacdDeathCross': check_macd_death_cross,
